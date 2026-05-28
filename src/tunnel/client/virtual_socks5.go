@@ -67,6 +67,9 @@ func (v *VirtualSocks5Conn) Read(b []byte) (n int, err error) {
 	// 首先检查读缓冲区是否有数据
 	if v.readBuf.Len() > 0 {
 		n, err = v.readBuf.Read(b)
+		if err != nil {
+			v.log.Debugf("读缓冲区读取失败: %v", err)
+		}
 		v.log.Debugf("[Read-Buffer] 从读缓冲区读取数据: %d字节, 数据: % x", n, b[:n])
 		v.mu.Unlock()
 		return n, err
