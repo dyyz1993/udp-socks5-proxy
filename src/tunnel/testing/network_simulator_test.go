@@ -1,6 +1,7 @@
 package testing
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -151,11 +152,12 @@ func TestNetworkSimulatorAddingConnections(t *testing.T) {
 	simulator.SetNetworkCondition(PoorNetworkCondition)
 
 	// 检查连接的网络条件是否被更新
-	if conn.options.ReadDelay != PoorNetworkCondition.ReadDelay ||
-		conn.options.WriteDelay != PoorNetworkCondition.WriteDelay ||
-		conn.options.PacketLossRate != PoorNetworkCondition.PacketLossRate ||
-		conn.options.ReadErrorRate != PoorNetworkCondition.ReadErrorRate ||
-		conn.options.WriteErrorRate != PoorNetworkCondition.WriteErrorRate {
+	opts := conn.GetOptions()
+	if opts.ReadDelay != PoorNetworkCondition.ReadDelay ||
+		opts.WriteDelay != PoorNetworkCondition.WriteDelay ||
+		opts.PacketLossRate != PoorNetworkCondition.PacketLossRate ||
+		opts.ReadErrorRate != PoorNetworkCondition.ReadErrorRate ||
+		opts.WriteErrorRate != PoorNetworkCondition.WriteErrorRate {
 		t.Error("添加到模拟器的连接网络条件没有被正确更新")
 	}
 }
@@ -165,11 +167,11 @@ func TestNetworkSimulatorCustomEvents(t *testing.T) {
 	simulator.Start()
 
 	// 添加一个自定义事件
-	customEventCalled := false
+	var customEventCalled atomic.Bool
 	simulator.AddEvent(50*time.Millisecond, NetworkEvent{
 		Type: EventTypeCustom,
 		Callback: func() {
-			customEventCalled = true
+			customEventCalled.Store(true)
 		},
 	})
 
@@ -177,7 +179,7 @@ func TestNetworkSimulatorCustomEvents(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 检查事件是否被调用
-	if !customEventCalled {
+	if !customEventCalled.Load() {
 		t.Error("自定义事件回调没有被调用")
 	}
 
@@ -208,7 +210,7 @@ func TestNetworkSimulatorDisconnectReconnect(t *testing.T) {
 	time.Sleep(75 * time.Millisecond)
 
 	// 检查连接是否被断开
-	if !conn.closed {
+	if !conn.IsClosed() {
 		t.Error("断开连接事件没有正确断开连接")
 	}
 
@@ -216,7 +218,7 @@ func TestNetworkSimulatorDisconnectReconnect(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// 检查连接是否被重新连接
-	if conn.closed {
+	if conn.IsClosed() {
 		t.Error("重新连接事件没有正确重新建立连接")
 	}
 
@@ -234,7 +236,7 @@ func TestNetworkSimulatorLatencyEvents(t *testing.T) {
 	simulator.AddConnection(conn)
 
 	// 记录初始延迟
-	initialReadDelay := conn.options.ReadDelay
+	initialReadDelay := conn.GetOptions().ReadDelay
 
 	// 添加延迟增加事件
 	simulator.AddEvent(50*time.Millisecond, NetworkEvent{
@@ -248,8 +250,8 @@ func TestNetworkSimulatorLatencyEvents(t *testing.T) {
 	time.Sleep(75 * time.Millisecond)
 
 	// 检查延迟是否增加
-	if conn.options.ReadDelay != initialReadDelay*2 {
-		t.Errorf("延迟增加事件没有正确增加延迟, 期望: %v, 实际: %v", initialReadDelay*2, conn.options.ReadDelay)
+	if opts := conn.GetOptions(); opts.ReadDelay != initialReadDelay*2 {
+		t.Errorf("延迟增加事件没有正确增加延迟, 期望: %v, 实际: %v", initialReadDelay*2, opts.ReadDelay)
 	}
 
 	// 添加延迟减少事件
@@ -264,8 +266,8 @@ func TestNetworkSimulatorLatencyEvents(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// 检查延迟是否减少
-	if conn.options.ReadDelay != initialReadDelay {
-		t.Errorf("延迟减少事件没有正确减少延迟, 期望: %v, 实际: %v", initialReadDelay, conn.options.ReadDelay)
+	if opts := conn.GetOptions(); opts.ReadDelay != initialReadDelay {
+		t.Errorf("延迟减少事件没有正确减少延迟, 期望: %v, 实际: %v", initialReadDelay, opts.ReadDelay)
 	}
 
 	simulator.Stop()
@@ -282,7 +284,7 @@ func TestNetworkSimulatorPacketLossEvents(t *testing.T) {
 	simulator.AddConnection(conn)
 
 	// 记录初始丢包率
-	initialPacketLossRate := conn.options.PacketLossRate
+	initialPacketLossRate := conn.GetOptions().PacketLossRate
 
 	// 添加丢包率增加事件
 	simulator.AddEvent(50*time.Millisecond, NetworkEvent{
@@ -296,8 +298,8 @@ func TestNetworkSimulatorPacketLossEvents(t *testing.T) {
 	time.Sleep(75 * time.Millisecond)
 
 	// 检查丢包率是否增加
-	if conn.options.PacketLossRate != initialPacketLossRate+0.1 {
-		t.Errorf("丢包率增加事件没有正确增加丢包率, 期望: %v, 实际: %v", initialPacketLossRate+0.1, conn.options.PacketLossRate)
+	if opts := conn.GetOptions(); opts.PacketLossRate != initialPacketLossRate+0.1 {
+		t.Errorf("丢包率增加事件没有正确增加丢包率, 期望: %v, 实际: %v", initialPacketLossRate+0.1, opts.PacketLossRate)
 	}
 
 	// 添加丢包率减少事件
@@ -312,8 +314,8 @@ func TestNetworkSimulatorPacketLossEvents(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// 检查丢包率是否减少
-	if conn.options.PacketLossRate != initialPacketLossRate {
-		t.Errorf("丢包率减少事件没有正确减少丢包率, 期望: %v, 实际: %v", initialPacketLossRate, conn.options.PacketLossRate)
+	if opts := conn.GetOptions(); opts.PacketLossRate != initialPacketLossRate {
+		t.Errorf("丢包率减少事件没有正确减少丢包率, 期望: %v, 实际: %v", initialPacketLossRate, opts.PacketLossRate)
 	}
 
 	simulator.Stop()
@@ -330,8 +332,9 @@ func TestNetworkSimulatorErrorRateEvents(t *testing.T) {
 	simulator.AddConnection(conn)
 
 	// 记录初始错误率
-	initialReadErrorRate := conn.options.ReadErrorRate
-	initialWriteErrorRate := conn.options.WriteErrorRate
+	initialOpts := conn.GetOptions()
+	initialReadErrorRate := initialOpts.ReadErrorRate
+	initialWriteErrorRate := initialOpts.WriteErrorRate
 
 	// 添加错误率增加事件
 	simulator.AddEvent(50*time.Millisecond, NetworkEvent{
@@ -345,11 +348,11 @@ func TestNetworkSimulatorErrorRateEvents(t *testing.T) {
 	time.Sleep(75 * time.Millisecond)
 
 	// 检查错误率是否增加
-	if conn.options.ReadErrorRate != initialReadErrorRate+0.05 ||
-		conn.options.WriteErrorRate != initialWriteErrorRate+0.05 {
+	if opts := conn.GetOptions(); opts.ReadErrorRate != initialReadErrorRate+0.05 ||
+		opts.WriteErrorRate != initialWriteErrorRate+0.05 {
 		t.Errorf("错误率增加事件没有正确增加错误率, 期望: %v/%v, 实际: %v/%v",
 			initialReadErrorRate+0.05, initialWriteErrorRate+0.05,
-			conn.options.ReadErrorRate, conn.options.WriteErrorRate)
+			opts.ReadErrorRate, opts.WriteErrorRate)
 	}
 
 	// 添加错误率减少事件
@@ -364,11 +367,11 @@ func TestNetworkSimulatorErrorRateEvents(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// 检查错误率是否减少
-	if conn.options.ReadErrorRate != initialReadErrorRate ||
-		conn.options.WriteErrorRate != initialWriteErrorRate {
+	if opts := conn.GetOptions(); opts.ReadErrorRate != initialReadErrorRate ||
+		opts.WriteErrorRate != initialWriteErrorRate {
 		t.Errorf("错误率减少事件没有正确减少错误率, 期望: %v/%v, 实际: %v/%v",
 			initialReadErrorRate, initialWriteErrorRate,
-			conn.options.ReadErrorRate, conn.options.WriteErrorRate)
+			opts.ReadErrorRate, opts.WriteErrorRate)
 	}
 
 	simulator.Stop()
@@ -380,10 +383,10 @@ func TestNetworkSimulatorCustomEventHandler(t *testing.T) {
 
 	// 注册自定义事件处理函数
 	customEventType := NetworkEventType("custom_test_event")
-	customEventHandled := false
+	var customEventHandled atomic.Bool
 
 	simulator.RegisterEventHandler(customEventType, func(event NetworkEvent) {
-		customEventHandled = true
+		customEventHandled.Store(true)
 		// 可以处理event.Params中的参数
 	})
 
@@ -396,7 +399,7 @@ func TestNetworkSimulatorCustomEventHandler(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 检查事件是否被处理
-	if !customEventHandled {
+	if !customEventHandled.Load() {
 		t.Error("自定义事件处理函数没有被调用")
 	}
 

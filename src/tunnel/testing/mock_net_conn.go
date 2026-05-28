@@ -298,6 +298,34 @@ func (m *MockNetConn) IsClosed() bool {
 	return m.closed
 }
 
+// GetOptions 线程安全地获取连接选项
+func (m *MockNetConn) GetOptions() MockNetConnOptions {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.options
+}
+
+// ApplyCondition 线程安全地应用网络条件到连接
+func (m *MockNetConn) ApplyCondition(condition MockNetConnOptions) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	m.options.ReadDelay = condition.ReadDelay
+	m.options.WriteDelay = condition.WriteDelay
+	m.options.PacketLossRate = condition.PacketLossRate
+	m.options.ReadErrorRate = condition.ReadErrorRate
+	m.options.WriteErrorRate = condition.WriteErrorRate
+}
+
+// SetClosed 线程安全地设置关闭状态
+func (m *MockNetConn) SetClosed(closed bool) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	m.closed = closed
+}
+
 // NewErrorMockNetConn 创建一个在写入时总是返回指定错误的MockNetConn
 func NewErrorMockNetConn(errMsg string) *MockNetConn {
 	conn := NewMockNetConn()

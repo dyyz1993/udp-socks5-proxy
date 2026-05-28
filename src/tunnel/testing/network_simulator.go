@@ -119,7 +119,7 @@ func (ns *NetworkSimulator) registerDefaultEventHandlers() {
 
 		for _, conn := range ns.connections {
 			// 关闭连接但不调用Close方法，只是模拟连接断开
-			conn.closed = true
+			conn.SetClosed(true)
 		}
 	}
 
@@ -130,7 +130,7 @@ func (ns *NetworkSimulator) registerDefaultEventHandlers() {
 
 		for _, conn := range ns.connections {
 			// 重新连接
-			conn.closed = false
+			conn.SetClosed(false)
 		}
 	}
 
@@ -152,8 +152,7 @@ func (ns *NetworkSimulator) registerDefaultEventHandlers() {
 
 		// 更新所有连接
 		for _, conn := range ns.connections {
-			conn.options.ReadDelay = ns.currentNetworkCondition.ReadDelay
-			conn.options.WriteDelay = ns.currentNetworkCondition.WriteDelay
+			conn.ApplyCondition(ns.currentNetworkCondition)
 		}
 
 		// 触发回调
@@ -180,8 +179,7 @@ func (ns *NetworkSimulator) registerDefaultEventHandlers() {
 
 		// 更新所有连接
 		for _, conn := range ns.connections {
-			conn.options.ReadDelay = ns.currentNetworkCondition.ReadDelay
-			conn.options.WriteDelay = ns.currentNetworkCondition.WriteDelay
+			conn.ApplyCondition(ns.currentNetworkCondition)
 		}
 
 		// 触发回调
@@ -210,7 +208,7 @@ func (ns *NetworkSimulator) registerDefaultEventHandlers() {
 
 		// 更新所有连接
 		for _, conn := range ns.connections {
-			conn.options.PacketLossRate = ns.currentNetworkCondition.PacketLossRate
+			conn.ApplyCondition(ns.currentNetworkCondition)
 		}
 
 		// 触发回调
@@ -239,7 +237,7 @@ func (ns *NetworkSimulator) registerDefaultEventHandlers() {
 
 		// 更新所有连接
 		for _, conn := range ns.connections {
-			conn.options.PacketLossRate = ns.currentNetworkCondition.PacketLossRate
+			conn.ApplyCondition(ns.currentNetworkCondition)
 		}
 
 		// 触发回调
@@ -272,8 +270,7 @@ func (ns *NetworkSimulator) registerDefaultEventHandlers() {
 
 		// 更新所有连接
 		for _, conn := range ns.connections {
-			conn.options.ReadErrorRate = ns.currentNetworkCondition.ReadErrorRate
-			conn.options.WriteErrorRate = ns.currentNetworkCondition.WriteErrorRate
+			conn.ApplyCondition(ns.currentNetworkCondition)
 		}
 
 		// 触发回调
@@ -306,8 +303,7 @@ func (ns *NetworkSimulator) registerDefaultEventHandlers() {
 
 		// 更新所有连接
 		for _, conn := range ns.connections {
-			conn.options.ReadErrorRate = ns.currentNetworkCondition.ReadErrorRate
-			conn.options.WriteErrorRate = ns.currentNetworkCondition.WriteErrorRate
+			conn.ApplyCondition(ns.currentNetworkCondition)
 		}
 
 		// 触发回调
@@ -352,11 +348,7 @@ func (ns *NetworkSimulator) AddConnection(conn *MockNetConn) {
 	defer ns.mutex.Unlock()
 
 	// 设置连接的网络条件为当前模拟器的网络条件
-	conn.options.ReadDelay = ns.currentNetworkCondition.ReadDelay
-	conn.options.WriteDelay = ns.currentNetworkCondition.WriteDelay
-	conn.options.PacketLossRate = ns.currentNetworkCondition.PacketLossRate
-	conn.options.ReadErrorRate = ns.currentNetworkCondition.ReadErrorRate
-	conn.options.WriteErrorRate = ns.currentNetworkCondition.WriteErrorRate
+	conn.ApplyCondition(ns.currentNetworkCondition)
 
 	ns.connections = append(ns.connections, conn)
 }
@@ -405,12 +397,7 @@ func (ns *NetworkSimulator) Reset() {
 
 	// 重置所有连接的网络条件
 	for _, conn := range ns.connections {
-		conn.options.ReadDelay = ns.currentNetworkCondition.ReadDelay
-		conn.options.WriteDelay = ns.currentNetworkCondition.WriteDelay
-		conn.options.PacketLossRate = ns.currentNetworkCondition.PacketLossRate
-		conn.options.ReadErrorRate = ns.currentNetworkCondition.ReadErrorRate
-		conn.options.WriteErrorRate = ns.currentNetworkCondition.WriteErrorRate
-		conn.closed = false
+		conn.ApplyCondition(ns.currentNetworkCondition)
 	}
 
 	ns.stopCh = make(chan struct{})
@@ -443,11 +430,7 @@ func (ns *NetworkSimulator) SetNetworkCondition(condition MockNetConnOptions) {
 
 	// 更新所有连接的网络条件
 	for _, conn := range ns.connections {
-		conn.options.ReadDelay = condition.ReadDelay
-		conn.options.WriteDelay = condition.WriteDelay
-		conn.options.PacketLossRate = condition.PacketLossRate
-		conn.options.ReadErrorRate = condition.ReadErrorRate
-		conn.options.WriteErrorRate = condition.WriteErrorRate
+		conn.ApplyCondition(ns.currentNetworkCondition)
 	}
 
 	// 触发回调

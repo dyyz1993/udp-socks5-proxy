@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 // mockConnector 模拟TunnelConnector用于测试
 type mockConnector struct {
+	mu            sync.Mutex
 	sentData      map[string][]byte
 	streamCreated bool
 	streamClosed  bool
@@ -50,8 +52,17 @@ func (c *mockConnector) CreateStream(targetAddr string) (string, tunnel.TunnelSt
 }
 
 func (c *mockConnector) SendData(streamID string, data []byte) error {
+	c.mu.Lock()
 	c.sentData[streamID] = data
+	c.mu.Unlock()
 	return nil
+}
+
+func (c *mockConnector) GetSentData(streamID string) ([]byte, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	data, ok := c.sentData[streamID]
+	return data, ok
 }
 
 func (c *mockConnector) AddStream(streamID string, stream tunnel.TunnelStream) {
@@ -119,7 +130,7 @@ func TestClientStreamServeConn(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 验证数据是否被转发到连接器
-	if sentData, ok := connector.sentData[streamID]; ok {
+	if sentData, ok := connector.GetSentData(streamID); ok {
 		if !bytes.Equal(sentData, testData) {
 			t.Errorf("数据未正确转发，期望: %v, 实际: %v", testData, sentData)
 		}

@@ -2,6 +2,7 @@ package testing
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -211,6 +212,7 @@ var DefaultScenarios = map[string]SimulationScenario{
 
 // SimulatorManager 网络模拟器管理器
 type SimulatorManager struct {
+	mu sync.Mutex
 	// 当前的网络模拟器
 	simulator *NetworkSimulator
 	// 所有可用的模拟场景
@@ -248,12 +250,15 @@ func (sm *SimulatorManager) AddScenario(scenario SimulationScenario) error {
 
 // RunScenario 运行指定的模拟场景
 func (sm *SimulatorManager) RunScenario(scenarioName string) error {
+	sm.mu.Lock()
 	if sm.running {
+		sm.mu.Unlock()
 		return fmt.Errorf("已有场景正在运行，请先停止")
 	}
 
 	scenario, exists := sm.scenarios[scenarioName]
 	if !exists {
+		sm.mu.Unlock()
 		return fmt.Errorf("场景 '%s' 不存在", scenarioName)
 	}
 
@@ -269,12 +274,14 @@ func (sm *SimulatorManager) RunScenario(scenarioName string) error {
 	sm.currentScenario = scenarioName
 	sm.running = true
 	sm.simulator.Start()
+	sm.mu.Unlock()
 
 	// 启动一个协程等待场景结束
 	go func() {
 		timer := time.NewTimer(scenario.Duration)
 		<-timer.C
 
+		sm.mu.Lock()
 		if sm.shouldAutoReset {
 			// 场景完成后，重置网络条件
 			sm.simulator.SetNetworkCondition(GoodNetworkCondition)
@@ -283,6 +290,7 @@ func (sm *SimulatorManager) RunScenario(scenarioName string) error {
 		sm.running = false
 		close(sm.done)
 		sm.done = make(chan struct{})
+		sm.mu.Unlock()
 	}()
 
 	return nil
@@ -290,7 +298,9 @@ func (sm *SimulatorManager) RunScenario(scenarioName string) error {
 
 // Stop 停止当前正在运行的场景
 func (sm *SimulatorManager) Stop() {
+	sm.mu.Lock()
 	if !sm.running {
+		sm.mu.Unlock()
 		return
 	}
 
@@ -298,15 +308,20 @@ func (sm *SimulatorManager) Stop() {
 	sm.running = false
 	close(sm.done)
 	sm.done = make(chan struct{})
+	sm.mu.Unlock()
 }
 
 // IsRunning 检查是否有场景正在运行
 func (sm *SimulatorManager) IsRunning() bool {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	return sm.running
 }
 
 // GetCurrentScenario 获取当前正在运行的场景名称
 func (sm *SimulatorManager) GetCurrentScenario() string {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	if !sm.running {
 		return ""
 	}
@@ -315,11 +330,15 @@ func (sm *SimulatorManager) GetCurrentScenario() string {
 
 // WaitForCompletion 等待当前场景完成
 func (sm *SimulatorManager) WaitForCompletion() {
+	sm.mu.Lock()
 	if !sm.running {
+		sm.mu.Unlock()
 		return
 	}
+	done := sm.done
+	sm.mu.Unlock()
 
-	<-sm.done
+	<-done
 }
 
 // SetAutoReset 设置是否应该在场景完成后自动重置网络条件
