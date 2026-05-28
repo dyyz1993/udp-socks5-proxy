@@ -110,3 +110,106 @@ func TestServerStreamNetConn(t *testing.T) {
 	err = conn.SetWriteDeadline(time.Now().Add(time.Second))
 	assert.NoError(t, err)
 }
+
+func TestServerStream_Write(t *testing.T) {
+	// Need a real UDP conn for Write (it calls SendPacket)
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		t.Skipf("cannot listen: %v", err)
+	}
+	defer conn.Close()
+
+	remoteAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:12345")
+	sc := NewServerConnector(conn, remoteAddr)
+	stream := newServerStream("s1", sc).(*serverStream)
+	defer stream.Close()
+
+	n, err := stream.Write([]byte("hello"))
+	t.Logf("Write: n=%d err=%v", n, err)
+
+	// Write to closed stream
+	stream.Close()
+	n, err = stream.Write([]byte("world"))
+	assert.Equal(t, 0, n)
+	assert.Error(t, err)
+}
+
+func TestServerStream_SendPacket(t *testing.T) {
+	// Create a UDP listener to get a real conn
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		t.Skipf("cannot listen: %v", err)
+	}
+	defer conn.Close()
+
+	remoteAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:12345")
+	sc := NewServerConnector(conn, remoteAddr)
+	stream := newServerStream("s1", sc).(*serverStream)
+
+	pkt := tunnel.NewDataPacket("c1", "s1", []byte("test"))
+	err = stream.SendPacket(pkt.Bytes())
+	t.Logf("SendPacket: %v", err)
+}
+
+func TestServerStream_SendPacketNilConnector(t *testing.T) {
+	stream := newServerStream("s1", nil).(*serverStream)
+	err := stream.SendPacket([]byte("data"))
+	assert.NoError(t, err) // nil connector returns nil
+}
+
+func TestServerStream_SendErrorPacket(t *testing.T) {
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		t.Skipf("cannot listen: %v", err)
+	}
+	defer conn.Close()
+
+	remoteAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:12345")
+	sc := NewServerConnector(conn, remoteAddr)
+	stream := newServerStream("s1", sc).(*serverStream)
+
+	err = stream.SendErrorPacket(1001, "test error")
+	t.Logf("SendErrorPacket: %v", err)
+}
+
+func TestServerStream_SendErrorPacketNilConnector(t *testing.T) {
+	stream := newServerStream("s1", nil).(*serverStream)
+	err := stream.SendErrorPacket(1001, "test")
+	assert.NoError(t, err)
+}
+
+func TestServerStream_PutDataAfterClose(t *testing.T) {
+	sc := &ServerConnector{BaseConnector: tunnel.NewBaseConnector()}
+	stream := newServerStream("s1", sc).(*serverStream)
+	stream.Close()
+
+	err := stream.PutData([]byte("data"))
+	assert.Error(t, err)
+}
+
+func TestServerStream_ReadAfterClose(t *testing.T) {
+	sc := &ServerConnector{BaseConnector: tunnel.NewBaseConnector()}
+	stream := newServerStream("s1", sc).(*serverStream)
+	stream.Close()
+
+	buf := make([]byte, 10)
+	_, err := stream.Read(buf)
+	assert.Error(t, err)
+}
+
+func TestServerStream_DataFlow(t *testing.T) {
+	sc := &ServerConnector{BaseConnector: tunnel.NewBaseConnector()}
+	stream := newServerStream("s1", sc).(*serverStream)
+	defer stream.Close()
+
+	// Put data and read it back
+	stream.PutData([]byte("hello"))
+	buf := make([]byte, 10)
+	n, err := stream.Read(buf)
+	assert.NoError(t, err)
+	assert.Equal(t, 5, n)
+	assert.Equal(t, "hello", string(buf[:n]))
+}
