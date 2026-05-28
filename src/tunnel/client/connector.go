@@ -183,7 +183,9 @@ func (c *ClientConnector) receiveLoop() {
 			return
 		default:
 			// 设置读取超时
-			c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			if err := c.conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				log.Printf("设置读取超时失败: %v", err)
+			}
 
 			// 读取数据
 			n, _, err := c.conn.ReadFromUDP(buffer)

@@ -603,7 +603,8 @@ func TestVirtualSocks5LargeWrite(t *testing.T) {
 		// 等待接收完成，带超时
 		select {
 		case err := <-errCh:
-			t.Fatalf("接收数据过程出错: %v", err)
+			t.Logf("接收数据过程出错: %v", err)
+			t.Errorf("接收数据过程出错: %v", err)
 		case receivedData := <-dataCh:
 			t.Logf("接收数据完成，大小: %d字节", len(receivedData))
 
@@ -614,7 +615,8 @@ func TestVirtualSocks5LargeWrite(t *testing.T) {
 			require.Equal(t, largeData[:100], receivedData[:100], "前100个字节不匹配")
 			require.Equal(t, largeData[len(largeData)-100:], receivedData[len(receivedData)-100:], "后100个字节不匹配")
 		case <-time.After(5 * time.Second):
-			t.Fatal("接收数据超时")
+			t.Logf("接收数据超时")
+			t.Errorf("接收数据超时")
 		}
 
 		// 等待读取完成
@@ -622,7 +624,8 @@ func TestVirtualSocks5LargeWrite(t *testing.T) {
 		case <-readDone:
 			// 正常完成
 		case <-time.After(1 * time.Second):
-			t.Fatal("等待读取完成超时")
+			t.Logf("等待读取完成超时")
+			t.Errorf("等待读取完成超时")
 		}
 
 		t.Log("大数据包分块写入测试成功")
@@ -632,7 +635,8 @@ func TestVirtualSocks5LargeWrite(t *testing.T) {
 	// 外层超时控制
 	select {
 	case <-timeout:
-		t.Fatal("测试整体超时")
+		t.Logf("测试整体超时")
+		t.Errorf("测试整体超时")
 	case <-done:
 		// 测试正常完成
 	}
