@@ -319,21 +319,19 @@ func TestClientConnector_ResourceCleanup(t *testing.T) {
 }
 
 func TestClientConnector_ReconnectScenario(t *testing.T) {
-	
-connector, err := NewClientConnector("127.0.0.1:8080")
+
+	connector, err := NewClientConnector("127.0.0.1:8080")
 	require.NoError(t, err)
 	require.NotNil(t, connector)
 
-	
-// 模拟重连场景
-	
+	// 模拟重连场景
 
-for i := 0; i < 3; i++ {
+	for i := 0; i < 3; i++ {
 		// 尝试连接
 		err = connector.Start()
 		if err != nil {
-	
-		// 连接失败是预期的（端口可能被占用）
+
+			// 连接失败是预期的（端口可能被占用）
 			continue
 		}
 
