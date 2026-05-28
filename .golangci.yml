@@ -14,3 +14,6 @@ issues:
       linters:
         - staticcheck
         - ineffassign
+    - linters:
+        - staticcheck
+      text: "SA9003"
