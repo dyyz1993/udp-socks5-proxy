@@ -180,3 +180,125 @@ func TestClientConnector_DataPacketWithStream(t *testing.T) {
 	err := c.ProcessIncomingData(pkt.Bytes())
 	t.Logf("DataPacketWithStream: %v", err)
 }
+
+func TestClientConnector_SendDataRunning(t *testing.T) {
+	c := newRunningConnector(t)
+	defer c.Close()
+
+	// Set up a real UDP conn for sending
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		t.Skipf("cannot listen: %v", err)
+	}
+	defer conn.Close()
+
+	// Start a reader on the server side to consume packets
+	go func() {
+		buf := make([]byte, 65536)
+		for {
+			_, _, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	c.conn = conn
+	c.BaseConnector.SetConnectionID("test-conn")
+
+	err = c.SendData("s1", []byte("hello"))
+	t.Logf("SendData running: %v", err)
+}
+
+func TestClientConnector_CreateStreamRunning(t *testing.T) {
+	c := newRunningConnector(t)
+	defer c.Close()
+
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		t.Skipf("cannot listen: %v", err)
+	}
+	defer conn.Close()
+
+	go func() {
+		buf := make([]byte, 65536)
+		for {
+			_, _, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	c.conn = conn
+	c.BaseConnector.SetConnectionID("test-conn")
+
+	id, stream, err := c.CreateStream("example.com:80")
+	t.Logf("CreateStream running: id=%q stream=%v err=%v", id, stream, err)
+}
+
+func TestClientConnector_SendDataLarge(t *testing.T) {
+	c := newRunningConnector(t)
+	defer c.Close()
+
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		t.Skipf("cannot listen: %v", err)
+	}
+	defer conn.Close()
+
+	go func() {
+		buf := make([]byte, 65536)
+		for {
+			_, _, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	c.conn = conn
+	c.BaseConnector.SetConnectionID("test-conn")
+
+	// Send data larger than MaxUDPPacketSize to trigger fragmentation
+	largeData := make([]byte, tunnel.MaxUDPPacketSize+1000)
+	for i := range largeData {
+		largeData[i] = byte(i % 256)
+	}
+
+	err = c.SendData("s1", largeData)
+	t.Logf("SendData large: %v", err)
+}
+
+func TestClientConnector_SendDataNoHandshake(t *testing.T) {
+	c := newRunningConnector(t)
+	defer c.Close()
+
+	// Running but no connection ID (handshake not done)
+	c.BaseConnector.SetConnectionID("")
+
+	err := c.SendData("s1", []byte("hello"))
+	assert.Error(t, err)
+	t.Logf("SendData no handshake: %v", err)
+}
+
+func TestClientConnector_CloseRunning(t *testing.T) {
+	c := newRunningConnector(t)
+
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		t.Skipf("cannot listen: %v", err)
+	}
+	defer conn.Close()
+
+	c.conn = conn
+	c.BaseConnector.SetConnectionID("test-conn")
+
+	err = c.Close()
+	assert.NoError(t, err)
+	assert.False(t, c.isRunning)
+}

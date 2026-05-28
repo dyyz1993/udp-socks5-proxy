@@ -275,3 +275,18 @@ func TestMockNetConn_WithOptions(t *testing.T) {
 		t.Fatal("nil conn")
 	}
 }
+
+func TestMockConnector_IsRunning(t *testing.T) {
+	mc := NewMockConnector()
+	if mc.IsRunning() {
+		t.Error("should not be running initially")
+	}
+	mc.Start()
+	if !mc.IsRunning() {
+		t.Error("should be running after Start")
+	}
+	mc.Close()
+	if mc.IsRunning() {
+		t.Error("should not be running after Close")
+	}
+}
