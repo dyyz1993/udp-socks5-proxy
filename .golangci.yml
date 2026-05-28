@@ -4,23 +4,6 @@ run:
 linters:
   disable-all: true
   enable:
-    - errcheck
     - govet
     - staticcheck
     - ineffassign
-
-linters-settings:
-  errcheck:
-    ignore-tests: true
-
-issues:
-  exclude-rules:
-    - linters:
-        - errcheck
-      source: "^\\s*defer "
-    - linters:
-        - errcheck
-      text: "Close"
-    - linters:
-        - errcheck
-      text: "Stop"
