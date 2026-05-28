@@ -1002,3 +1002,76 @@ func TestSplitPacket_GeneratesUniqueSequenceIDs(t *testing.T) {
 
 	assert.NotEqual(t, fragments1[0].SequenceID, fragments2[0].SequenceID, "不同时间的分片应该有不同的序列ID")
 }
+
+func TestParseErrorPacket(t *testing.T) {
+	// Create a valid error packet
+	errPkt := NewErrorPacket("conn1", 1001, "test error", "stream1")
+	raw := errPkt.Bytes()
+
+	// Parse it back
+	tunnelPkt, err := ParsePacket(raw)
+	require.NoError(t, err)
+
+	parsed, err := ParseErrorPacket(tunnelPkt)
+	require.NoError(t, err)
+	assert.Equal(t, 1001, parsed.Code)
+	assert.Equal(t, "test error", parsed.Message)
+	assert.Equal(t, "stream1", parsed.RelatedID)
+}
+
+func TestParseErrorPacket_WrongType(t *testing.T) {
+	dataPkt := &TunnelPacket{
+		Header: Header{Type: PacketTypeData},
+		Data:   []byte("hello"),
+	}
+	_, err := ParseErrorPacket(dataPkt)
+	assert.Error(t, err)
+}
+
+func TestParseErrorPacket_InvalidData(t *testing.T) {
+	tunnelPkt := &TunnelPacket{
+		Header: Header{Type: PacketTypeError},
+		Data:   []byte{0x01}, // too short
+	}
+	_, err := ParseErrorPacket(tunnelPkt)
+	assert.Error(t, err)
+}
+
+func TestParseHandshakePacket(t *testing.T) {
+	key := [32]byte{}
+	for i := range key {
+		key[i] = byte(i)
+	}
+
+	hsPkt := NewHandshakePacket("conn1", key, "test-group", 42, "2.0")
+	raw := hsPkt.Bytes()
+
+	tunnelPkt, err := ParsePacket(raw)
+	require.NoError(t, err)
+
+	parsed, err := ParseHandshakePacket(tunnelPkt)
+	require.NoError(t, err)
+	assert.Equal(t, "conn1", parsed.Header.ConnectionID)
+	assert.Equal(t, key, parsed.Key)
+	assert.Equal(t, "test-group", parsed.Group)
+	assert.Equal(t, uint32(42), parsed.Features)
+	assert.Equal(t, "2.0", parsed.Version)
+}
+
+func TestParseHandshakePacket_WrongType(t *testing.T) {
+	dataPkt := &TunnelPacket{
+		Header: Header{Type: PacketTypeData},
+		Data:   []byte("hello"),
+	}
+	_, err := ParseHandshakePacket(dataPkt)
+	assert.Error(t, err)
+}
+
+func TestParseHandshakePacket_InvalidData(t *testing.T) {
+	tunnelPkt := &TunnelPacket{
+		Header: Header{Type: PacketTypeHandshake},
+		Data:   []byte{0x01}, // too short
+	}
+	_, err := ParseHandshakePacket(tunnelPkt)
+	assert.Error(t, err)
+}
