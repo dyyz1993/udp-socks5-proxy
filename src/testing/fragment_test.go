@@ -264,6 +264,7 @@ func TestFragmentPacket(t *testing.T) {
 // 创建一个模拟的可停止服务器接口，便于测试
 type mockStoppableServer struct {
 	isRunning bool
+	conn      *net.UDPConn
 }
 
 func (m *mockStoppableServer) Start() error {
@@ -273,6 +274,10 @@ func (m *mockStoppableServer) Start() error {
 
 func (m *mockStoppableServer) Stop() error {
 	m.isRunning = false
+	// 关闭UDP连接以释放端口
+	if m.conn != nil {
+		m.conn.Close()
+	}
 	return nil
 }
 
@@ -287,19 +292,25 @@ func setupServer(t *testing.T) *mockStoppableServer {
 
 	// 在实际场景中，我们会通过ServerConnector处理数据
 	// 但在测试中，我们只需要一个监听器并在后台转发数据
+	server := &mockStoppableServer{
+		conn: conn,
+	}
+
 	go func() {
 		buffer := make([]byte, 65536)
-		for {
+		for server.isRunning {
+			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 			n, addr, err := conn.ReadFromUDP(buffer)
 			if err != nil {
-				return
+				// 超时或其他错误，检查服务器状态
+				continue
 			}
 			// 简单地将数据回送给发送者
 			conn.WriteToUDP(buffer[:n], addr)
 		}
 	}()
 
-	return &mockStoppableServer{}
+	return server
 }
 
 // setupClient 设置测试用客户端

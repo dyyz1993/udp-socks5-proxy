@@ -212,6 +212,7 @@ func TestDataAccuracyAndEfficiency(t *testing.T) {
 	var totalSuccess, totalFailed, totalCorrupted int
 	var totalBytes int64
 	var avgThroughput float64
+	var validSizes int
 
 	for _, size := range dataSizes {
 		result := results[size]
@@ -232,16 +233,23 @@ func TestDataAccuracyAndEfficiency(t *testing.T) {
 		t.Logf("  - 成功率: %.2f%% (%d/%d)", successRate, result.Success, sizeRequests)
 		t.Logf("  - 错误率: %.2f%% (%d/%d)", errorRate, result.Failed, sizeRequests)
 		t.Logf("  - 数据损坏率: %.2f%% (%d/%d)", corruptionRate, result.DataCorrupted, sizeRequests)
-		t.Logf("  - 吞吐量: %.2f MB/s", throughput)
-		t.Logf("  - 平均请求时间: %v", result.TotalTime/time.Duration(result.Success))
+		if result.Success > 0 {
+			t.Logf("  - 吞吐量: %.2f MB/s", throughput)
+			t.Logf("  - 平均请求时间: %v", result.TotalTime/time.Duration(result.Success))
+		} else {
+			t.Logf("  - 吞吐量: N/A (无成功请求)")
+		}
 
 		totalSuccess += result.Success
 		totalFailed += result.Failed
 		totalCorrupted += result.DataCorrupted
 		totalBytes += result.TotalBytes
 
-		// 累计吞吐量
-		avgThroughput += throughput
+		// 累计吞吐量（只统计成功的大小）
+		if result.Success > 0 {
+			avgThroughput += throughput
+			validSizes++
+		}
 	}
 
 	// 总体统计
@@ -251,7 +259,7 @@ func TestDataAccuracyAndEfficiency(t *testing.T) {
 	t.Logf("  - 总失败数: %d (%.2f%%)", totalFailed, float64(totalFailed)/float64(totalRequests)*100)
 	t.Logf("  - 总数据损坏数: %d (%.2f%%)", totalCorrupted, float64(totalCorrupted)/float64(totalRequests)*100)
 	t.Logf("  - 总传输数据: %.2f MB", float64(totalBytes)/1024/1024)
-	t.Logf("  - 平均吞吐量: %.2f MB/s", avgThroughput/float64(len(dataSizes)))
+	t.Logf("  - 平均吞吐量: %.2f MB/s", avgThroughput/float64(validSizes))
 	t.Logf("  - 总体传输速率: %.2f MB/s", float64(totalBytes)/totalTestTime.Seconds()/1024/1024)
 
 	// 验证测试结果满足最低标准

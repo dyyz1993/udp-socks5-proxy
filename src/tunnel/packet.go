@@ -102,8 +102,8 @@ func (tp *TunnelPacket) Bytes() []byte {
 	binary.Write(buf, binary.BigEndian, uint16(len(idBytes)))
 	buf.Write(idBytes)
 
-	// 如果是数据包或关闭包，写入StreamID
-	if tp.Header.Type == PacketTypeData || tp.Header.Type == PacketTypeClose {
+	// 如果是数据包、关闭包或分片包，写入StreamID
+	if tp.Header.Type == PacketTypeData || tp.Header.Type == PacketTypeClose || tp.Header.Type == PacketTypeFragmented {
 		// 写入StreamID长度和StreamID
 		streamIDBytes := []byte(tp.Header.StreamID)
 		binary.Write(buf, binary.BigEndian, uint16(len(streamIDBytes)))
@@ -150,8 +150,8 @@ func ParsePacket(data []byte) (*TunnelPacket, error) {
 		ConnectionID: connectionID,
 	}
 
-	// 如果是数据包或关闭包，读取StreamID
-	if header.Type == PacketTypeData || header.Type == PacketTypeClose {
+	// 如果是数据包、关闭包或分片包，读取StreamID
+	if header.Type == PacketTypeData || header.Type == PacketTypeClose || header.Type == PacketTypeFragmented {
 		// 读取StreamID长度
 		var streamIDLen uint16
 		binary.Read(reader, binary.BigEndian, &streamIDLen)

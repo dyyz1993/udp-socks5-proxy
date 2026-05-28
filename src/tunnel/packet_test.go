@@ -723,14 +723,14 @@ func TestFragmentPacket_Creation(t *testing.T) {
 	)
 
 	// 验证分片包属性
-	assert.Equal(t, PacketTypeFragmented, packet.Header.Type, "分片包类型应该是Fragmented")
+	assert.Equal(t, PacketType(PacketTypeFragmented), PacketType(packet.Header.Type), "分片包类型应该是Fragmented")
 	assert.Equal(t, connectionID, packet.Header.ConnectionID, "连接ID不匹配")
 	assert.Equal(t, streamID, packet.Header.StreamID, "流ID不匹配")
 	assert.Equal(t, sequenceID, packet.SequenceID, "序列ID不匹配")
 	assert.Equal(t, totalFragments, packet.TotalFragments, "总分片数不匹配")
 	assert.Equal(t, fragmentIndex, packet.FragmentIndex, "分片索引不匹配")
 	assert.Equal(t, flags, packet.Flags, "分片标记不匹配")
-	assert.Equal(t, originalType, packet.OriginalType, "原始类型不匹配")
+	assert.Equal(t, PacketType(originalType), PacketType(packet.OriginalType), "原始类型不匹配")
 
 	// 测试GetFragmentData方法
 	data := packet.GetFragmentData()
@@ -771,14 +771,14 @@ func TestParseFragmentPacket(t *testing.T) {
 	require.NoError(t, err, "解析分片包失败")
 
 	// 验证解析后的分片包
-	assert.Equal(t, PacketTypeFragmented, parsedPacket.Header.Type, "分片包类型应该是Fragmented")
+	assert.Equal(t, PacketType(PacketTypeFragmented), PacketType(parsedPacket.Header.Type), "分片包类型应该是Fragmented")
 	assert.Equal(t, connectionID, parsedPacket.Header.ConnectionID, "连接ID不匹配")
 	assert.Equal(t, streamID, parsedPacket.Header.StreamID, "流ID不匹配")
 	assert.Equal(t, sequenceID, parsedPacket.SequenceID, "序列ID不匹配")
 	assert.Equal(t, totalFragments, parsedPacket.TotalFragments, "总分片数不匹配")
 	assert.Equal(t, fragmentIndex, parsedPacket.FragmentIndex, "分片索引不匹配")
 	assert.Equal(t, flags, parsedPacket.Flags, "分片标记不匹配")
-	assert.Equal(t, originalType, parsedPacket.OriginalType, "原始类型不匹配")
+	assert.Equal(t, PacketType(originalType), PacketType(parsedPacket.OriginalType), "原始类型不匹配")
 
 	// 测试GetFragmentData方法
 	data := parsedPacket.GetFragmentData()
@@ -838,8 +838,8 @@ func TestSplitAndMergePacket(t *testing.T) {
 	for i, fragment := range fragments {
 		assert.Equal(t, connectionID, fragment.Header.ConnectionID, "分片连接ID应该匹配")
 		assert.Equal(t, streamID, fragment.Header.StreamID, "分片流ID应该匹配")
-		assert.Equal(t, PacketTypeFragmented, fragment.Header.Type, "分片类型应该是Fragmented")
-		assert.Equal(t, PacketTypeData, fragment.OriginalType, "原始类型应该是Data")
+		assert.Equal(t, PacketType(PacketTypeFragmented), PacketType(fragment.Header.Type), "分片类型应该是Fragmented")
+		assert.Equal(t, PacketType(PacketTypeData), PacketType(fragment.OriginalType), "原始类型应该是Data")
 		assert.Equal(t, uint32(i), fragment.FragmentIndex, "分片索引应该匹配")
 		assert.Equal(t, uint32(len(fragments)), fragment.TotalFragments, "总分片数应该匹配")
 
@@ -862,7 +862,7 @@ func TestSplitAndMergePacket(t *testing.T) {
 	// 验证合并后的包
 	assert.Equal(t, connectionID, mergedPacket.Header.ConnectionID, "合并包连接ID应该匹配")
 	assert.Equal(t, streamID, mergedPacket.Header.StreamID, "合并包流ID应该匹配")
-	assert.Equal(t, PacketTypeData, mergedPacket.Header.Type, "合并包类型应该是原始类型")
+	assert.Equal(t, PacketType(PacketTypeData), PacketType(mergedPacket.Header.Type), "合并包类型应该是原始类型")
 	assert.Equal(t, len(largeData), len(mergedPacket.Data), "合并包数据长度应该匹配")
 	assert.True(t, bytes.Equal(largeData, mergedPacket.Data), "合并包数据应该匹配原始数据")
 

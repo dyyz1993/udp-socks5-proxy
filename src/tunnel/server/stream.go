@@ -121,6 +121,13 @@ func (s *serverStream) PutData(data []byte) error {
 	case s.readBuffer <- data:
 		return nil
 	default:
+		// 检查是否已关闭（再次检查以避免竞态条件）
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return io.ErrClosedPipe
+		}
+		s.mu.Unlock()
 		log.Printf("[ServerStream] 读缓冲区已满，丢弃数据: streamID=%s", s.GetStreamID())
 		return errors.New("读缓冲区已满")
 	}
