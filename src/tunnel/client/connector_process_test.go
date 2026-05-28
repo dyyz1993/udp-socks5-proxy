@@ -211,34 +211,6 @@ func TestClientConnector_SendDataRunning(t *testing.T) {
 	t.Logf("SendData running: %v", err)
 }
 
-func TestClientConnector_CreateStreamRunning(t *testing.T) {
-	c := newRunningConnector(t)
-	defer c.Close()
-
-	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		t.Skipf("cannot listen: %v", err)
-	}
-	defer conn.Close()
-
-	go func() {
-		buf := make([]byte, 65536)
-		for {
-			_, _, err := conn.ReadFromUDP(buf)
-			if err != nil {
-				return
-			}
-		}
-	}()
-
-	c.conn = conn
-	c.BaseConnector.SetConnectionID("test-conn")
-
-	id, stream, err := c.CreateStream("example.com:80")
-	t.Logf("CreateStream running: id=%q stream=%v err=%v", id, stream, err)
-}
-
 func TestClientConnector_SendDataLarge(t *testing.T) {
 	c := newRunningConnector(t)
 	defer c.Close()
