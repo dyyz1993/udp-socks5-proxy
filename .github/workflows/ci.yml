@@ -37,8 +37,8 @@ jobs:
           exit 1
         fi
 
-    - name: Run tests
-      run: go test -v -race -timeout 5m -coverprofile=coverage.out ./...
+    - name: Run unit tests
+      run: go test -v -race -timeout 5m -coverprofile=coverage.out $(go list ./... | grep -v 'src/testing')
 
     - name: Run integration tests
       run: go test -v -timeout 2m ./src/testing/
