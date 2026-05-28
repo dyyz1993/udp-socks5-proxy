@@ -1,9 +1,9 @@
 package client
 
 import (
+	crand "crypto/rand"
 	"fmt"
 	"log"
-	"math/rand"
 	"net"
 	"sync"
 	"time"
@@ -28,10 +28,9 @@ type ClientConnector struct {
 	lastActiveTime time.Time
 
 	// 控制和状态
-	isRunning       bool
-	reconnectTicker *time.Ticker
-	closeChan       chan struct{}
-	processMutex    sync.Mutex
+	isRunning    bool
+	closeChan    chan struct{}
+	processMutex sync.Mutex
 }
 
 // NewClientConnector 创建一个新的客户端连接器
@@ -83,7 +82,7 @@ func (c *ClientConnector) sendHandshake() error {
 
 	// 创建一个随机的握手密钥
 	key := [32]byte{}
-	rand.Read(key[:])
+	crand.Read(key[:]) //nolint:errcheck
 
 	// 使用临时连接ID
 	tempConnID := fmt.Sprintf("temp-%d", time.Now().UnixNano())
@@ -335,7 +334,7 @@ func (c *ClientConnector) ProcessIncomingData(data []byte) error {
 	c.processMutex.Lock()
 	defer c.processMutex.Unlock()
 
-	if c.isRunning == false {
+	if !c.isRunning {
 		return tunnel.ErrConnClosed
 	}
 
