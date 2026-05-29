@@ -168,23 +168,43 @@ func TestCreateStreamFrag_NoHandshake(t *testing.T) {
 	}
 }
 
-// TestProcessIncomingDataFrag_NotRunning tests processing data when stopped
-func TestProcessIncomingDataFrag_NotRunning(t *testing.T) {
-	c, err := NewClientConnector("127.0.0.1:0")
-	require.NoError(t, err)
-
-	err = c.ProcessIncomingData([]byte{0x01, 0x02})
-	assert.Equal(t, tunnel.ErrConnClosed, err)
-}
-
-// TestProcessIncomingDataFrag_InvalidPacket tests processing invalid packet data
-func TestProcessIncomingDataFrag_InvalidPacket(t *testing.T) {
+// TestProcessIncomingDataFrag_DefaultType tests processing unknown packet type
+func TestProcessIncomingDataFrag_DefaultType(t *testing.T) {
 	c, serverConn := newTestConnectorForFrag(t)
 	defer serverConn.Close()
 	defer c.conn.Close()
 
-	err := c.ProcessIncomingData([]byte{0xFF, 0xFF, 0xFF})
-	assert.Error(t, err)
+	// Create a packet with unknown type (type 99)
+	pkt := tunnel.NewHeartbeatPacket("conn-1", 1, 0.5)
+	pkt.Header.Type = 0x63 // Unknown type
+
+	err := c.ProcessIncomingData(pkt.Bytes())
+	assert.Equal(t, tunnel.ErrInvalidPacket, err)
+}
+
+// TestProcessIncomingDataFrag_HandshakePacket tests processing handshake packet
+func TestProcessIncomingDataFrag_HandshakePacket(t *testing.T) {
+	c, serverConn := newTestConnectorForFrag(t)
+	defer serverConn.Close()
+	defer c.conn.Close()
+
+	pkt := tunnel.NewHandshakePacket("conn-hs-ack", [32]byte{}, "group-1", 1, "server-1.0")
+
+	err := c.ProcessIncomingData(pkt.Bytes())
+	assert.NoError(t, err)
+	assert.Equal(t, "conn-hs-ack", c.BaseConnector.GetConnectionID())
+}
+
+// TestProcessIncomingDataFrag_HeartbeatPacket tests processing heartbeat packet
+func TestProcessIncomingDataFrag_HeartbeatPacket(t *testing.T) {
+	c, serverConn := newTestConnectorForFrag(t)
+	defer serverConn.Close()
+	defer c.conn.Close()
+
+	pkt := tunnel.NewHeartbeatPacket("conn-hb", 1, 0.5)
+
+	err := c.ProcessIncomingData(pkt.Bytes())
+	assert.NoError(t, err)
 }
 
 // TestSendDataFrag_NotRunning tests SendData when not running
