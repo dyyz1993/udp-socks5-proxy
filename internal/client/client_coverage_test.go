@@ -204,3 +204,60 @@ func TestCovClient_ServeSocks5_AcceptError(t *testing.T) {
 		t.Fatal("serveSOCKS5 did not exit after closeChan")
 	}
 }
+
+func TestCovClient_Start_AlreadyRunning(t *testing.T) {
+	logger := common.NewSimpleLogger("TEST", common.DebugLevel)
+	c := NewClient(Config{
+		LocalPort:  0,
+		ServerAddr: "127.0.0.1:1",
+		LogLevel:   common.DebugLevel,
+	}, logger)
+
+	c.isRunning = true
+	err := c.Start()
+	assert.NoError(t, err)
+	c.isRunning = false
+}
+
+func TestCovClient_Start_CreateListenerError(t *testing.T) {
+	logger := common.NewSimpleLogger("TEST", common.DebugLevel)
+	c := NewClient(Config{
+		LocalPort:  99999, // Invalid port
+		ServerAddr: "127.0.0.1:1",
+		LogLevel:   common.DebugLevel,
+	}, logger)
+
+	err := c.Start()
+	assert.Error(t, err)
+}
+
+func TestCovClient_Stop_NotRunning(t *testing.T) {
+	logger := common.NewSimpleLogger("TEST", common.DebugLevel)
+	c := NewClient(Config{
+		LocalPort:  0,
+		ServerAddr: "127.0.0.1:1",
+		LogLevel:   common.DebugLevel,
+	}, logger)
+
+	err := c.Stop()
+	assert.NoError(t, err)
+}
+
+func TestCovClient_Stop_WithListener(t *testing.T) {
+	logger := common.NewSimpleLogger("TEST", common.DebugLevel)
+	c := NewClient(Config{
+		LocalPort:  0,
+		ServerAddr: "127.0.0.1:1",
+		LogLevel:   common.DebugLevel,
+	}, logger)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	c.listener = listener
+	c.isRunning = true
+	c.closeChan = make(chan struct{})
+
+	err = c.Stop()
+	assert.NoError(t, err)
+	assert.False(t, c.isRunning)
+}
