@@ -242,3 +242,35 @@ func TestServeConn_DataTransfer(t *testing.T) {
 		t.Fatal("ServeConn did not exit in time")
 	}
 }
+
+func TestServeConn_WriteError(t *testing.T) {
+	mc := newMockConn()
+	stream := NewTunnelStreamImpl("serve-write-err", mc)
+
+	clientConn, serverConn := net.Pipe()
+	clientConn.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- stream.ServeConn(serverConn)
+	}()
+
+	stream.PutData([]byte("will-fail"))
+
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("ServeConn did not exit in time")
+	}
+	serverConn.Close()
+}
+
+func TestPutData_ClosedStream(t *testing.T) {
+	mc := newMockConn()
+	stream := NewTunnelStreamImpl("put-closed", mc)
+	stream.Close()
+
+	err := stream.PutData([]byte("test"))
+	require.Error(t, err)
+}

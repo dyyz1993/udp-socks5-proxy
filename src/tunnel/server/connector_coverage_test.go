@@ -404,3 +404,5 @@ func TestCovServer_HandleClosePacket_WithStream(t *testing.T) {
 	err := sc.ProcessIncomingData(closePkt.Bytes())
 	assert.NoError(t, err)
 }
+
+// === Coverage boost: handleFragmentPacket ===
