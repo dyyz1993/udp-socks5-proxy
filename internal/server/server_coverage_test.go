@@ -269,3 +269,73 @@ func TestServer_MultipleClients(t *testing.T) {
 }
 
 // === Coverage boost: processPacket branches ===
+
+// === Coverage boost: handleUDP with real data ===
+
+func TestCovServer_HandleUDP_RealPacket(t *testing.T) {
+	s, port := newTestServer(t)
+	err := s.Start()
+	require.NoError(t, err)
+	defer s.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Send a handshake packet from a real UDP client
+	clientConn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: port})
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	hsPkt := tunnel.NewHandshakePacket("conn-udp-test", [32]byte{}, "group-1", 1, "client-1.0")
+	_, err = clientConn.Write(hsPkt.Bytes())
+	require.NoError(t, err)
+
+	// Read response
+	buf := make([]byte, 4096)
+	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, err := clientConn.Read(buf)
+	require.NoError(t, err)
+	assert.Greater(t, n, 0)
+
+	// Send heartbeat
+	hbPkt := tunnel.NewHeartbeatPacket("conn-udp-test", 1, 0.5)
+	clientConn.Write(hbPkt.Bytes())
+}
+
+func TestCovServer_HandleUDP_InvalidPacket(t *testing.T) {
+	s, port := newTestServer(t)
+	err := s.Start()
+	require.NoError(t, err)
+	defer s.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+
+	clientConn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: port})
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	// Send invalid data
+	_, err = clientConn.Write([]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF})
+	require.NoError(t, err)
+
+	// Give server time to process
+	time.Sleep(200 * time.Millisecond)
+}
+
+func TestCovServer_HandleUDP_ShortPacket(t *testing.T) {
+	s, port := newTestServer(t)
+	err := s.Start()
+	require.NoError(t, err)
+	defer s.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+
+	clientConn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: port})
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	// Send very short data
+	_, err = clientConn.Write([]byte{0x01, 0x02})
+	require.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+}
