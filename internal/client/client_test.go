@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/tealife/proxy-cs3/internal/common"
 )
 
@@ -219,4 +220,45 @@ func TestParseTargetAddress_InvalidRsv(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for invalid rsv")
 	}
+}
+
+// === Coverage boost for parseTargetAddress ===
+
+func TestParseTargetAddress_ReadHandshakeError(t *testing.T) {
+	logger := common.NewSimpleLogger("TEST", common.DebugLevel)
+	clientConn, serverConn := net.Pipe()
+	serverConn.Close() // Close immediately to cause read error
+
+	_, _, err := parseTargetAddress(clientConn, logger)
+	assert.Error(t, err)
+	clientConn.Close()
+}
+
+func TestParseTargetAddress_ReadMethodsError(t *testing.T) {
+	logger := common.NewSimpleLogger("TEST", common.DebugLevel)
+	clientConn, serverConn := net.Pipe()
+
+	go func() {
+		defer serverConn.Close()
+		serverConn.Write([]byte{0x05, 0x05}) // says 5 methods but closes
+	}()
+
+	_, _, err := parseTargetAddress(clientConn, logger)
+	assert.Error(t, err)
+	clientConn.Close()
+}
+
+func TestParseTargetAddress_WriteAuthRespError(t *testing.T) {
+	logger := common.NewSimpleLogger("TEST", common.DebugLevel)
+	clientConn, serverConn := net.Pipe()
+
+	go func() {
+		defer serverConn.Close()
+		serverConn.Write([]byte{0x05, 0x01, 0x00})
+		// Don't read auth response - close to cause write error on next write
+	}()
+
+	_, _, err := parseTargetAddress(clientConn, logger)
+	assert.Error(t, err)
+	clientConn.Close()
 }
