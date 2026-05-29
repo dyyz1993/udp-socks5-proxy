@@ -265,6 +265,28 @@ func TestHandleErrorPacketFrag(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestHandleErrorPacket_WithStreamID tests error packet with stream close
+func TestHandleErrorPacket_WithStreamID(t *testing.T) {
+	c, serverConn := newTestConnectorForFrag(t)
+	defer serverConn.Close()
+	defer c.conn.Close()
+
+	// Add a stream first
+	stream := newClientStream("stream-err-close", c)
+	c.BaseConnector.AddStream("stream-err-close", stream)
+
+	// Send error packet targeting the stream
+	errPkt := tunnel.NewErrorPacket("conn-1", 1001, "stream error", "stream-err-close")
+	rawBytes := errPkt.Bytes()
+	parsed, err := tunnel.ParsePacket(rawBytes)
+	require.NoError(t, err)
+	errParsed, err := tunnel.ParseErrorPacket(parsed)
+	require.NoError(t, err)
+
+	err = c.handleErrorPacket(errParsed)
+	assert.NoError(t, err)
+}
+
 // TestConnectFrag_InvalidAddress tests Connect with bad address
 func TestConnectFrag_InvalidAddress(t *testing.T) {
 	c, err := NewClientConnector("invalid-host:99999")
