@@ -124,3 +124,83 @@ func TestCovClient_DoubleStop(t *testing.T) {
 	assert.NoError(t, c.Stop())
 	assert.NoError(t, c.Stop())
 }
+
+func TestCovClient_ServeSocks5_CloseChan(t *testing.T) {
+	logger := common.NewSimpleLogger("TEST", common.DebugLevel)
+	c := NewClient(Config{
+		LocalPort:  0,
+		ServerAddr: "127.0.0.1:1",
+		LogLevel:   common.DebugLevel,
+	}, logger)
+
+	// Create a real listener
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	c.listener = listener
+	c.isRunning = true
+
+	// Start serveSOCKS5 in a goroutine
+	c.wg.Add(1)
+	go c.serveSOCKS5()
+
+	// Close the client to trigger closeChan exit
+	time.Sleep(100 * time.Millisecond)
+	close(c.closeChan)
+	c.listener.Close()
+	c.isRunning = false
+
+	// Wait for serveSOCKS5 to exit
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(3 * time.Second):
+		t.Fatal("serveSOCKS5 did not exit")
+	}
+}
+
+func TestCovClient_ServeSocks5_AcceptError(t *testing.T) {
+	logger := common.NewSimpleLogger("TEST", common.DebugLevel)
+	c := NewClient(Config{
+		LocalPort:  0,
+		ServerAddr: "127.0.0.1:1",
+		LogLevel:   common.DebugLevel,
+	}, logger)
+
+	// Create and immediately close listener to trigger Accept error
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	c.listener = listener
+	c.isRunning = true
+
+	// Close listener to cause Accept errors
+	listener.Close()
+
+	// Start serveSOCKS5 - it should handle Accept errors
+	c.wg.Add(1)
+	go c.serveSOCKS5()
+
+	// Give it time to hit Accept error
+	time.Sleep(200 * time.Millisecond)
+
+	// Close to stop
+	close(c.closeChan)
+	c.isRunning = false
+
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("serveSOCKS5 did not exit after closeChan")
+	}
+}
