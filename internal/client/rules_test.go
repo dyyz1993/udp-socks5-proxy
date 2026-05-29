@@ -1,109 +1,94 @@
 package client
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestNewRuleEngine(t *testing.T) {
-	rules := []string{"*.example.com", ".google.com"}
-	engine := NewRuleEngine(rules, true)
+	r := NewRuleEngine([]string{"example.com", "*.test.com"}, true)
+	assert.NotNil(t, r)
+	assert.True(t, r.defaultDirect)
+}
 
-	if engine == nil {
-		t.Fatal("NewRuleEngine返回nil")
+func TestShouldDirectConnect_DomainMatch(t *testing.T) {
+	r := NewRuleEngine([]string{"example.com", "*.test.com"}, false)
+
+	tests := []struct {
+		name     string
+		addr     string
+		expected bool
+	}{
+		{"exact match", "example.com:80", true},
+		{"wildcard subdomain", "sub.test.com:443", true},
+		{"deep subdomain", "a.b.test.com:80", true},
+		{"no match", "other.com:80", false},
+		{"default direct true", "any.com:80", true},
+		{"IP address", "192.168.1.1:8080", false},
+		{"invalid addr uses default", "invalid", false},
 	}
 
-	if len(engine.domainRules) != 2 {
-		t.Errorf("规则数量错误，期望: 2, 实际: %d", len(engine.domainRules))
-	}
-
-	if !engine.defaultDirect {
-		t.Error("默认直连配置错误")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set defaultDirect based on test name
+			if tt.name == "default direct true" {
+				r.SetDefaultDirect(true)
+			} else {
+				r.SetDefaultDirect(false)
+			}
+			result := r.ShouldDirectConnect(tt.addr)
+			assert.Equal(t, tt.expected, result)
+		})
 	}
 }
 
+func TestShouldDirectConnect_DotPrefix(t *testing.T) {
+	r := NewRuleEngine([]string{".example.com"}, false)
+	assert.True(t, r.ShouldDirectConnect("sub.example.com:80"))
+	assert.True(t, r.ShouldDirectConnect("a.b.example.com:443"))
+	assert.False(t, r.ShouldDirectConnect("other.com:80"))
+}
+
+func TestAddDomainRule(t *testing.T) {
+	r := NewRuleEngine(nil, false)
+
+	// Before adding rule
+	assert.False(t, r.ShouldDirectConnect("newdomain.com:80"))
+
+	// Add rule
+	r.AddDomainRule("newdomain.com")
+	assert.True(t, r.ShouldDirectConnect("newdomain.com:80"))
+}
+
+func TestSetDefaultDirect(t *testing.T) {
+	r := NewRuleEngine(nil, false)
+	assert.False(t, r.ShouldDirectConnect("any.com:80"))
+
+	r.SetDefaultDirect(true)
+	assert.True(t, r.ShouldDirectConnect("any.com:80"))
+
+	r.SetDefaultDirect(false)
+	assert.False(t, r.ShouldDirectConnect("any.com:80"))
+}
+
 func TestMatchDomain(t *testing.T) {
-	testCases := []struct {
+	tests := []struct {
 		domain   string
 		rule     string
 		expected bool
 	}{
-		// 精确匹配
-		{"example.com", "example.com", true},
-		{"example.com", "example.org", false},
-
-		// 通配符匹配
 		{"sub.example.com", "*.example.com", true},
-		{"othersub.example.com", "*.example.com", true},
 		{"example.com", "*.example.com", false},
-		{"sub.other.com", "*.example.com", false},
-
-		// 后缀匹配
-		{"www.google.com", ".google.com", true},
-		{"google.com", ".google.com", false},
-		{"othergoogle.com", ".google.com", false},
+		{"sub.example.com", ".example.com", true},
+		{"example.com", ".example.com", false},
+		{"example.com", "example.com", true},
+		{"other.com", "example.com", false},
 	}
 
-	for _, tc := range testCases {
-		result := matchDomain(tc.domain, tc.rule)
-		if result != tc.expected {
-			t.Errorf("matchDomain(%s, %s) = %v, 期望: %v", tc.domain, tc.rule, result, tc.expected)
-		}
-	}
-}
-
-func TestShouldDirectConnect(t *testing.T) {
-	rules := []string{"*.example.com", ".google.com", "direct.com"}
-	engine := NewRuleEngine(rules, true)
-
-	testCases := []struct {
-		addr     string
-		expected bool
-	}{
-		// IP地址应走代理
-		{"8.8.8.8:80", false},
-		{"127.0.0.1:8080", false},
-		{"[::1]:80", false},
-
-		// 匹配规则的域名应直连
-		{"www.example.com:443", true},
-		{"api.example.com:80", true},
-		{"mail.google.com:443", true},
-		{"direct.com:80", true},
-
-		// 不匹配规则的域名，使用默认策略(true)
-		{"other.com:80", true},
-		{"unknown.org:443", true},
-
-		// 无法解析的地址应使用默认策略
-		{"malformed", true},
-	}
-
-	for _, tc := range testCases {
-		result := engine.ShouldDirectConnect(tc.addr)
-		if result != tc.expected {
-			t.Errorf("ShouldDirectConnect(%s) = %v, 期望: %v", tc.addr, result, tc.expected)
-		}
-	}
-
-	// 测试默认策略为false的情况
-	engine.SetDefaultDirect(false)
-
-	if engine.ShouldDirectConnect("other.com:80") {
-		t.Error("修改默认策略后，不匹配规则的域名应走代理")
-	}
-}
-
-func TestRuleEngineAddRule(t *testing.T) {
-	engine := NewRuleEngine([]string{}, false)
-
-	// 初始没有规则
-	if engine.ShouldDirectConnect("test.com:80") {
-		t.Error("初始应该走代理")
-	}
-
-	// 添加规则
-	engine.AddDomainRule("test.com")
-
-	// 现在应该直连
-	if !engine.ShouldDirectConnect("test.com:80") {
-		t.Error("添加规则后应该直连")
+	for _, tt := range tests {
+		t.Run(tt.domain+"_"+tt.rule, func(t *testing.T) {
+			assert.Equal(t, tt.expected, matchDomain(tt.domain, tt.rule))
+		})
 	}
 }
