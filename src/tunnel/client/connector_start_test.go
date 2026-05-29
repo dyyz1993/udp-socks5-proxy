@@ -328,3 +328,72 @@ func TestConnector_SendHandshake_Direct(t *testing.T) {
 		t.Fatal("timeout")
 	}
 }
+
+// TestConnector_Start_FullLifecycle tests Start → receiveLoop → heartbeatLoop → Close
+func TestConnector_Start_FullLifecycle(t *testing.T) {
+	// Create a real UDP "server" that responds to handshake
+	serverAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	serverConn, err := net.ListenUDP("udp", serverAddr)
+	require.NoError(t, err)
+	defer serverConn.Close()
+
+	serverPort := serverConn.LocalAddr().(*net.UDPAddr).Port
+
+	// Server goroutine: read handshake, respond
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		buf := make([]byte, 4096)
+		for {
+			n, clientAddr, err := serverConn.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+
+			// Parse the packet
+			pkt, err := tunnel.ParsePacket(buf[:n])
+			if err != nil {
+				continue
+			}
+
+			if pkt.Header.Type == tunnel.PacketTypeHandshake {
+				hs, _ := tunnel.ParseHandshakePacket(pkt)
+				// Respond with server handshake
+				resp := tunnel.NewHandshakePacket(
+					hs.Header.ConnectionID,
+					hs.Key,
+					hs.Group,
+					hs.Features,
+					"server-1.0",
+				)
+				serverConn.WriteToUDP(resp.Bytes(), clientAddr)
+			}
+
+			if pkt.Header.Type == tunnel.PacketTypeHeartbeat {
+				// Echo heartbeat back
+				serverConn.WriteToUDP(pkt.Bytes(), clientAddr)
+			}
+		}
+	}()
+
+	// Create client connector
+	c, err := NewClientConnector(fmt.Sprintf("127.0.0.1:%d", serverPort))
+	require.NoError(t, err)
+
+	// Start - this calls Connect() which does handshake
+	err = c.Start()
+	require.NoError(t, err)
+	assert.True(t, c.isRunning)
+
+	// Let heartbeat and receive loops run a bit
+	time.Sleep(1500 * time.Millisecond)
+
+	// Close
+	err = c.Close()
+	assert.NoError(t, err)
+	assert.False(t, c.isRunning)
+
+	serverConn.Close()
+	<-serverDone
+}
