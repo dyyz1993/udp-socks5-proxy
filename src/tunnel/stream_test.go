@@ -274,3 +274,50 @@ func TestPutData_ClosedStream(t *testing.T) {
 	err := stream.PutData([]byte("test"))
 	require.Error(t, err)
 }
+
+func TestPutData_SOCKS5DataTypes(t *testing.T) {
+	mc := newMockConn()
+	stream := NewTunnelStreamImpl("put-socks5", mc)
+
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{"auth_response", []byte{0x05, 0x00}},
+		{"handshake_request", []byte{0x05, 0x01, 0x00}},
+		{"connect_request_ipv4", []byte{0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0, 80}},
+		{"connect_response", []byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 80}},
+		{"other_socks5", []byte{0x05, 0x03, 0x01, 0x00}},
+		{"long_data", append([]byte{0x05, 0x01, 0x00, 0x03, byte(len("example.com"))}, []byte("example.com")...)},
+		{"non_socks5", []byte("GET / HTTP/1.1\r\nHost: example.com\r\n")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := stream.PutData(tt.data)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestGetData_BufRead(t *testing.T) {
+	mc := newMockConn()
+	stream := NewTunnelStreamImpl("get-buf", mc)
+
+	// Put data first
+	stream.PutData([]byte("test-data"))
+
+	// Get it back
+	data, err := stream.GetData()
+	require.NoError(t, err)
+	require.Equal(t, "test-data", string(data))
+}
+
+func TestGetData_Closed(t *testing.T) {
+	mc := newMockConn()
+	stream := NewTunnelStreamImpl("get-closed", mc)
+	stream.Close()
+
+	_, err := stream.GetData()
+	require.Error(t, err)
+}
