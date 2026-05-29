@@ -1075,3 +1075,44 @@ func TestParseHandshakePacket_InvalidData(t *testing.T) {
 	_, err := ParseHandshakePacket(tunnelPkt)
 	assert.Error(t, err)
 }
+
+// === Coverage boost tests ===
+
+func TestParseDataPacket_WrongType(t *testing.T) {
+	pkt := &TunnelPacket{Header: Header{Type: PacketTypeClose}, Data: nil}
+	_, err := ParseDataPacket(pkt)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "数据包类型错误")
+}
+
+func TestParseClosePacket_WrongType(t *testing.T) {
+	pkt := &TunnelPacket{Header: Header{Type: PacketTypeData}, Data: []byte("x")}
+	_, err := ParseClosePacket(pkt)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "数据包类型错误")
+}
+
+func TestGetData_Timeout(t *testing.T) {
+	mc := newMockConn()
+	s := NewTunnelStreamImpl("s-timeout", mc)
+	data, err := s.GetData()
+	assert.NoError(t, err)
+	assert.Nil(t, data)
+}
+
+func TestGetData_FromBuffer(t *testing.T) {
+	mc := newMockConn()
+	s := NewTunnelStreamImpl("s-getbuf", mc)
+	s.PutData([]byte("hello"))
+	data, err := s.GetData()
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("hello"), data)
+}
+
+func TestGetData_AfterClose(t *testing.T) {
+	mc := newMockConn()
+	s := NewTunnelStreamImpl("s-getclose", mc)
+	s.Close()
+	_, err := s.GetData()
+	assert.Equal(t, ErrConnClosed, err)
+}
