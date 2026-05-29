@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 	"time"
 
@@ -1115,4 +1116,52 @@ func TestGetData_AfterClose(t *testing.T) {
 	s.Close()
 	_, err := s.GetData()
 	assert.Equal(t, ErrConnClosed, err)
+}
+
+// === Coverage boost: ParseHandshakePacket error branches ===
+
+func TestParseHandshakePacket_ShortKey(t *testing.T) {
+	pkt := NewHandshakePacket("test", [32]byte{}, "g", 1, "v")
+	tp := &pkt.TunnelPacket
+	tp.Data = []byte{0x01, 0x02} // Too short for 32-byte key
+	_, err := ParseHandshakePacket(tp)
+	assert.Error(t, err)
+}
+
+func TestParseHandshakePacket_ShortGroup2(t *testing.T) {
+	pkt := NewHandshakePacket("test", [32]byte{}, "group", 1, "v")
+	tp := &pkt.TunnelPacket
+	buf := &bytes.Buffer{}
+	buf.Write(make([]byte, 32))
+	binary.Write(buf, binary.BigEndian, uint16(100))
+	tp.Data = buf.Bytes()
+	_, err := ParseHandshakePacket(tp)
+	assert.Error(t, err)
+}
+
+func TestParseHandshakePacket_ShortVersion2(t *testing.T) {
+	pkt := NewHandshakePacket("test", [32]byte{}, "g", 1, "v")
+	tp := &pkt.TunnelPacket
+	buf := &bytes.Buffer{}
+	buf.Write(make([]byte, 32))
+	binary.Write(buf, binary.BigEndian, uint16(1))
+	buf.WriteString("g")
+	binary.Write(buf, binary.BigEndian, uint32(1))
+	binary.Write(buf, binary.BigEndian, uint16(100))
+	tp.Data = buf.Bytes()
+	_, err := ParseHandshakePacket(tp)
+	assert.Error(t, err)
+}
+
+func TestParseErrorPacket_WrongType2(t *testing.T) {
+	pkt := NewDataPacket("test", "s1", []byte("data"))
+	tp := &pkt.TunnelPacket
+	_, err := ParseErrorPacket(tp)
+	assert.Error(t, err)
+}
+
+func TestMergeFragments_Nil(t *testing.T) {
+	result, err := MergeFragments(nil)
+	assert.Error(t, err) // 没有可合并的分片
+	assert.Nil(t, result)
 }
