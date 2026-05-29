@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockConnector struct {
@@ -182,4 +184,27 @@ func TestTunnelStreamImpl_ConcurrentPutData(t *testing.T) {
 		t.Error("expected data after concurrent PutData")
 	}
 	s.Close()
+}
+
+func TestServeConn_ClientEOF(t *testing.T) {
+	mc := newMockConn()
+	stream := NewTunnelStreamImpl("serve-eof", mc)
+
+	clientConn, serverConn := net.Pipe()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- stream.ServeConn(serverConn)
+	}()
+
+	clientConn.Write([]byte("hello"))
+	time.Sleep(100 * time.Millisecond)
+	clientConn.Close()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("ServeConn did not exit in time")
+	}
 }
