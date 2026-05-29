@@ -277,3 +277,130 @@ func TestServerSendData_NoConn(t *testing.T) {
 	// Should error because conn is closed
 	assert.Error(t, err)
 }
+
+// === Coverage boost: ProcessIncomingData branches ===
+
+func TestCovServer_ProcessIncomingData_ClosePacket(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	closePkt := tunnel.NewClosePacket("conn-close", "")
+	err := sc.ProcessIncomingData(closePkt.Bytes())
+	assert.NoError(t, err)
+}
+
+func TestCovServer_ProcessIncomingData_HeartbeatPacket(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	hbPkt := tunnel.NewHeartbeatPacket("conn-hb", 1, 0.5)
+	err := sc.ProcessIncomingData(hbPkt.Bytes())
+	assert.NoError(t, err)
+}
+
+func TestCovServer_ProcessIncomingData_ErrorPacket(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	errPkt := tunnel.NewErrorPacket("conn-err", 1001, "test error", "")
+	err := sc.ProcessIncomingData(errPkt.Bytes())
+	assert.NoError(t, err)
+}
+
+func TestCovServer_ProcessIncomingData_UnknownType(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	// Create a packet with unknown type
+	pkt := tunnel.NewHeartbeatPacket("conn-unk", 1, 0.5)
+	pkt.Header.Type = 0xFF // Unknown type
+	err := sc.ProcessIncomingData(pkt.Bytes())
+	assert.Equal(t, tunnel.ErrInvalidPacket, err)
+}
+
+func TestCovServer_ProcessIncomingData_HandshakePacket(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	hsPkt := tunnel.NewHandshakePacket("conn-hs", [32]byte{}, "group-1", 1, "client-1.0")
+	err := sc.ProcessIncomingData(hsPkt.Bytes())
+	assert.NoError(t, err)
+	// handleHandshakePacket generates a UUID, not our input ID
+	assert.NotEmpty(t, sc.GetConnectionID())
+}
+
+func TestCovServer_ProcessIncomingData_DataPacket(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	// Add a stream first
+	stream := newServerStream("stream-data", sc)
+	sc.AddStream("stream-data", stream)
+
+	dataPkt := tunnel.NewDataPacket("conn-data", "stream-data", []byte("hello"))
+	err := sc.ProcessIncomingData(dataPkt.Bytes())
+	assert.NoError(t, err)
+}
+
+func TestCovServer_ProcessIncomingData_NotRunning(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+
+	err := sc.ProcessIncomingData([]byte{0x01})
+	assert.Equal(t, tunnel.ErrConnClosed, err)
+}
+
+func TestCovServer_ProcessIncomingData_InvalidData(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	err := sc.ProcessIncomingData([]byte{0xFF, 0xFF})
+	assert.Error(t, err)
+}
+
+func TestCovServer_HandleHandshakePacket_Duplicate(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	hsPkt := tunnel.NewHandshakePacket("conn-dup", [32]byte{}, "group-1", 1, "client-1.0")
+
+	// First handshake
+	err := sc.ProcessIncomingData(hsPkt.Bytes())
+	assert.NoError(t, err)
+
+	// Second handshake (duplicate)
+	hsPkt2 := tunnel.NewHandshakePacket("conn-dup2", [32]byte{}, "group-1", 1, "client-1.0")
+	err = sc.ProcessIncomingData(hsPkt2.Bytes())
+	assert.NoError(t, err)
+}
+
+func TestCovServer_HandleClosePacket_WithStream(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	// Add a stream
+	stream := newServerStream("stream-close", sc)
+	sc.AddStream("stream-close", stream)
+
+	closePkt := tunnel.NewClosePacket("conn-close", "")
+	err := sc.ProcessIncomingData(closePkt.Bytes())
+	assert.NoError(t, err)
+}
