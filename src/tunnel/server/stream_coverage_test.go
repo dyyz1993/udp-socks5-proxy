@@ -239,3 +239,61 @@ func TestStreamCov_ConcurrentPutRead(t *testing.T) {
 
 	<-done
 }
+
+func TestCovServerStream_Read_Closed(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	stream := newServerStream("read-closed", sc).(*serverStream)
+	stream.Close()
+
+	buf := make([]byte, 1024)
+	_, err := stream.Read(buf)
+	assert.Equal(t, io.EOF, err)
+}
+
+func TestCovServerStream_Read_ChannelClosed(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	stream := newServerStream("read-chclosed", sc).(*serverStream)
+	impl := stream
+
+	// Close the readBuffer channel directly
+	close(impl.readBuffer)
+
+	buf := make([]byte, 1024)
+	_, err := stream.Read(buf)
+	assert.Equal(t, io.EOF, err)
+}
+
+func TestCovServerStream_Write_Closed(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	stream := newServerStream("write-closed", sc).(*serverStream)
+	stream.Close()
+
+	_, err := stream.Write([]byte("test"))
+	assert.Equal(t, io.ErrClosedPipe, err)
+}
+
+func TestCovServerStream_Close_Twice(t *testing.T) {
+	sc, conn := newTestSC(t)
+	defer conn.Close()
+	sc.Start()
+	defer sc.Close()
+
+	stream := newServerStream("close-twice", sc).(*serverStream)
+	err := stream.Close()
+	assert.NoError(t, err)
+
+	err = stream.Close()
+	assert.NoError(t, err)
+}
