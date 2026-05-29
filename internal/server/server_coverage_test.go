@@ -267,3 +267,5 @@ func TestServer_MultipleClients(t *testing.T) {
 	assert.Equal(t, 2, len(s.clientConn))
 	s.mu.Unlock()
 }
+
+// === Coverage boost: processPacket branches ===
