@@ -208,3 +208,37 @@ func TestServeConn_ClientEOF(t *testing.T) {
 		t.Fatal("ServeConn did not exit in time")
 	}
 }
+
+func TestServeConn_DataTransfer(t *testing.T) {
+	mc := newMockConn()
+	stream := NewTunnelStreamImpl("serve-transfer", mc)
+
+	clientConn, serverConn := net.Pipe()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- stream.ServeConn(serverConn)
+	}()
+
+	// Put data into stream's readBuffer (simulating tunnel data)
+	stream.PutData([]byte("from-tunnel"))
+	time.Sleep(100 * time.Millisecond)
+
+	// Read from client side
+	buf := make([]byte, 1024)
+	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, err := clientConn.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, "from-tunnel", string(buf[:n]))
+
+	// Close to exit ServeConn
+	clientConn.Close()
+	stream.Close()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("ServeConn did not exit in time")
+	}
+}
