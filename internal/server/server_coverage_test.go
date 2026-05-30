@@ -457,3 +457,37 @@ func TestCovServer_processPacket_AllTypes(t *testing.T) {
 	_, _ = conn.Write(hbPkt.Bytes())
 	time.Sleep(200 * time.Millisecond)
 }
+
+// TestCovProcessPacket_NewClientConnector tests creating a new client connector
+func TestCovProcessPacket_NewClientConnector(t *testing.T) {
+	sp := getFreeServerPort(t)
+	logger := common.NewSimpleLogger("test", common.ErrorLevel)
+	s := NewServer(Config{Port: sp, LogLevel: common.ErrorLevel}, logger)
+	go s.Start()
+	time.Sleep(200 * time.Millisecond)
+	defer s.Stop()
+
+	// Send a data packet from a NEW client address to trigger new connector creation
+	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: sp})
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// First send handshake to establish connection
+	hsPkt := tunnel.NewHandshakePacket("new-client-1", [32]byte{}, "g", 1, "v1")
+	_, _ = conn.Write(hsPkt.Bytes())
+	time.Sleep(300 * time.Millisecond)
+
+	// Then send data packet to trigger processPacket's new connector path
+	dataPkt := tunnel.NewDataPacket("new-client-1", "s1", []byte("test-data"))
+	_, _ = conn.Write(dataPkt.Bytes())
+	time.Sleep(300 * time.Millisecond)
+
+	// Send from a DIFFERENT client address to create another connector
+	conn2, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: sp})
+	require.NoError(t, err)
+	defer conn2.Close()
+
+	hsPkt2 := tunnel.NewHandshakePacket("new-client-2", [32]byte{}, "g", 1, "v1")
+	_, _ = conn2.Write(hsPkt2.Bytes())
+	time.Sleep(300 * time.Millisecond)
+}
