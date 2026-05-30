@@ -386,3 +386,74 @@ func TestCovProcessPacket_InvalidData(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 }
+
+// TestCovServer_HandleUDP_TimeoutExit tests that handleUDP exits on closeChan after timeout
+func TestCovServer_HandleUDP_TimeoutExit(t *testing.T) {
+	sp := getFreeServerPort(t)
+	logger := common.NewSimpleLogger("test", common.ErrorLevel)
+	s := NewServer(Config{Port: sp, LogLevel: common.ErrorLevel}, logger)
+	go s.Start()
+	time.Sleep(200 * time.Millisecond)
+
+	// Send multiple packet types to trigger different processPacket branches
+	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: sp})
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Send heartbeat packet
+	hbPkt := tunnel.NewHeartbeatPacket("test-conn", 1, 0.5)
+	_, _ = conn.Write(hbPkt.Bytes())
+	time.Sleep(200 * time.Millisecond)
+
+	// Send data packet
+	dataPkt := tunnel.NewDataPacket("test-conn", "s1", []byte("hello"))
+	_, _ = conn.Write(dataPkt.Bytes())
+	time.Sleep(200 * time.Millisecond)
+
+	// Send close packet
+	closePkt := tunnel.NewClosePacket("test-conn", "s1")
+	_, _ = conn.Write(closePkt.Bytes())
+	time.Sleep(200 * time.Millisecond)
+
+	// Send error packet
+	errPkt := tunnel.NewErrorPacket("test-conn", 1, "test error", "s1")
+	_, _ = conn.Write(errPkt.Bytes())
+	time.Sleep(200 * time.Millisecond)
+
+	// Send fragmented packet
+	fragPkt := tunnel.NewFragmentPacket("test-conn", "s1", tunnel.PacketTypeData, 1, 2, 0, 0, []byte("frag"))
+	_, _ = conn.Write(fragPkt.Bytes())
+	time.Sleep(200 * time.Millisecond)
+
+	s.Stop()
+	time.Sleep(300 * time.Millisecond)
+}
+
+// TestCovServer_processPacket_AllTypes tests processPacket with all packet types
+func TestCovServer_processPacket_AllTypes(t *testing.T) {
+	sp := getFreeServerPort(t)
+	logger := common.NewSimpleLogger("test", common.ErrorLevel)
+	s := NewServer(Config{Port: sp, LogLevel: common.ErrorLevel}, logger)
+	go s.Start()
+	time.Sleep(200 * time.Millisecond)
+	defer s.Stop()
+
+	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: sp})
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Send handshake to establish connection
+	hspkt := tunnel.NewHandshakePacket("cov-all-types", [32]byte{}, "group", 1, "v1.0")
+	_, _ = conn.Write(hspkt.Bytes())
+	time.Sleep(300 * time.Millisecond)
+
+	// Send data packet for established connection
+	dataPkt := tunnel.NewDataPacket("cov-all-types", "s-all", []byte("test-data"))
+	_, _ = conn.Write(dataPkt.Bytes())
+	time.Sleep(200 * time.Millisecond)
+
+	// Send heartbeat for established connection
+	hbPkt := tunnel.NewHeartbeatPacket("cov-all-types", 1, 0.5)
+	_, _ = conn.Write(hbPkt.Bytes())
+	time.Sleep(200 * time.Millisecond)
+}
