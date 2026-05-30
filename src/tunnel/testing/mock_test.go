@@ -282,9 +282,9 @@ func TestCovMockTunnelStream_CloseFail(t *testing.T) {
 func TestCovMockTunnelStream_CloseFailCustomError(t *testing.T) {
 	mc := NewMockConnector()
 	ms := NewMockTunnelStreamWithOptions(mc, MockTunnelStreamOptions{
-		StreamID:     "s1",
-		TargetAddr:   "addr",
-		CloseError:   errors.New("custom-close-err"),
+		StreamID:   "s1",
+		TargetAddr: "addr",
+		CloseError: errors.New("custom-close-err"),
 	})
 	require.EqualError(t, ms.Close(), "custom-close-err")
 }
@@ -325,9 +325,9 @@ func TestCovMockTunnelStream_PutDataFail(t *testing.T) {
 func TestCovMockTunnelStream_PutDataFailCustomError(t *testing.T) {
 	mc := NewMockConnector()
 	ms := NewMockTunnelStreamWithOptions(mc, MockTunnelStreamOptions{
-		StreamID:       "s1",
-		TargetAddr:     "addr",
-		PutDataError:   errors.New("pd-err"),
+		StreamID:     "s1",
+		TargetAddr:   "addr",
+		PutDataError: errors.New("pd-err"),
 	})
 	require.EqualError(t, ms.PutData([]byte("data")), "pd-err")
 }
@@ -420,9 +420,9 @@ func TestCovMockTunnelStream_ServeConnFail(t *testing.T) {
 func TestCovMockTunnelStream_ServeConnFailCustomError(t *testing.T) {
 	mc := NewMockConnector()
 	ms := NewMockTunnelStreamWithOptions(mc, MockTunnelStreamOptions{
-		StreamID:        "s1",
-		TargetAddr:      "addr",
-		ServeConnError:  errors.New("sc-err"),
+		StreamID:       "s1",
+		TargetAddr:     "addr",
+		ServeConnError: errors.New("sc-err"),
 	})
 	require.EqualError(t, ms.ServeConn(NewMockNetConn()), "sc-err")
 }
