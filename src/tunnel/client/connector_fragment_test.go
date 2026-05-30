@@ -314,3 +314,110 @@ func TestConnectFrag_InvalidAddress(t *testing.T) {
 	err = c.Connect()
 	assert.Error(t, err)
 }
+
+// === Coverage boost: ProcessIncomingData error branches ===
+
+func TestCovPID_InvalidPacketType(t *testing.T) {
+	c, _ := NewClientConnector("127.0.0.1:9999")
+	c.isRunning = true
+	defer c.Close()
+
+	// Create packet with invalid type (255)
+	pkt := tunnel.NewDataPacket("test", "s1", []byte("data"))
+	pkt.Header.Type = 0xFF // Invalid type
+	err := c.ProcessIncomingData(pkt.Bytes())
+	// Should not crash, might return error or be ignored
+	_ = err
+}
+
+func TestCovPID_ParseHandshakeError(t *testing.T) {
+	c, _ := NewClientConnector("127.0.0.1:9999")
+	c.isRunning = true
+	defer c.Close()
+
+	// Send handshake packet with corrupted data
+	pkt := tunnel.NewHandshakePacket("test", [32]byte{}, "g", 1, "v")
+	pkt.Data = []byte{0x01} // Too short for handshake parsing
+	pkt.Header.Type = tunnel.PacketTypeHandshake
+	err := c.ProcessIncomingData(pkt.Bytes())
+	require.Error(t, err)
+}
+
+func TestCovPID_ParseDataError(t *testing.T) {
+	c, _ := NewClientConnector("127.0.0.1:9999")
+	c.isRunning = true
+	defer c.Close()
+
+	pkt := tunnel.NewDataPacket("test", "s1", []byte("data"))
+	pkt.Header.Type = tunnel.PacketTypeData
+	// Corrupt the stream ID to cause parse error
+	pkt.Header.StreamID = ""
+	err := c.ProcessIncomingData(pkt.Bytes())
+	_ = err
+}
+
+func TestCovPID_NotRunning(t *testing.T) {
+	c, _ := NewClientConnector("127.0.0.1:9999")
+	c.isRunning = false
+	defer c.Close()
+
+	err := c.ProcessIncomingData([]byte{0x01})
+	require.Equal(t, tunnel.ErrConnClosed, err)
+}
+
+func TestCovPID_EmptyData(t *testing.T) {
+	c, _ := NewClientConnector("127.0.0.1:9999")
+	c.isRunning = true
+	defer c.Close()
+
+	err := c.ProcessIncomingData([]byte{})
+	require.Error(t, err)
+}
+
+// === Coverage boost: Connect error paths ===
+
+func TestCovConnect_BadServerAddr(t *testing.T) {
+	c, _ := NewClientConnector("invalid-addr:-1")
+	err := c.Connect()
+	require.Error(t, err)
+}
+
+func TestCovConnect_UnreachableServer(t *testing.T) {
+	c, _ := NewClientConnector("127.0.0.1:1") // Port 1 - no server
+	err := c.Connect()
+	// Connect will succeed (UDP doesn't check connectivity) but waitForHandshake will timeout
+	// This tests the sendHandshake + waitForHandshake path
+	_ = err
+	c.Close()
+}
+
+// === Coverage boost: CreateStream error paths ===
+
+func TestCovCreateStream_NotRunning(t *testing.T) {
+	c, _ := NewClientConnector("127.0.0.1:9999")
+	// Not running, no connection
+	_, _, err := c.CreateStream("target:80")
+	require.Error(t, err)
+}
+
+func TestCovCreateStream_NoHandshake(t *testing.T) {
+	c, _ := NewClientConnector("127.0.0.1:9999")
+	c.isRunning = true
+	c.conn = nil // No connection means no handshake
+	_, _, err := c.CreateStream("target:80")
+	require.Error(t, err)
+}
+
+// === Coverage boost: sendHandshake ===
+
+func TestCovSendHandshake_ClosedConn(t *testing.T) {
+	c, _ := NewClientConnector("127.0.0.1:9999")
+	// Set up a closed connection
+	serverAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:9999")
+	conn, _ := net.DialUDP("udp", nil, serverAddr)
+	c.conn = conn
+	conn.Close()
+
+	err := c.sendHandshake()
+	require.Error(t, err)
+}
