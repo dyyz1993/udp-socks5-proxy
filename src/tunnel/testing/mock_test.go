@@ -528,3 +528,126 @@ func TestCovMockConnector_ProcessIncomingData(t *testing.T) {
 	pkt := tunnel.NewDataPacket("conn", "s1", []byte("data"))
 	require.NoError(t, mc.ProcessIncomingData(pkt.Bytes()))
 }
+
+// === Final push: Read/Write/ServeConn/PutData/Close remaining branches ===
+
+func TestCovMockNetConn_ReadCallbacks(t *testing.T) {
+	conn := NewMockNetConn()
+	called := false
+	conn.OnRead = func(b []byte) (int, error) {
+		called = true
+		copy(b, []byte("custom"))
+		return 6, nil
+	}
+	defer conn.Close()
+
+	buf := make([]byte, 100)
+	n, err := conn.Read(buf)
+	require.NoError(t, err)
+	require.True(t, called)
+	require.Equal(t, "custom", string(buf[:n]))
+}
+
+func TestCovMockNetConn_WriteCallbacks(t *testing.T) {
+	conn := NewMockNetConn()
+	called := false
+	conn.OnWrite = func(b []byte) (int, error) {
+		called = true
+		return len(b), nil
+	}
+	defer conn.Close()
+
+	n, err := conn.Write([]byte("test"))
+	require.NoError(t, err)
+	require.True(t, called)
+	require.Equal(t, 4, n)
+}
+
+func TestCovMockNetConn_ReadConnClosed(t *testing.T) {
+	conn := NewMockNetConn()
+	conn.Close()
+
+	_, err := conn.Read(make([]byte, 10))
+	require.Error(t, err)
+}
+
+func TestCovMockNetConn_WriteConnClosed(t *testing.T) {
+	conn := NewMockNetConn()
+	conn.Close()
+
+	_, err := conn.Write([]byte("test"))
+	require.Error(t, err)
+}
+
+func TestCovMockNetConn_WriteDeadlineExceeded(t *testing.T) {
+	conn := NewMockNetConn()
+	conn.SetWriteDeadline(time.Now().Add(-time.Second)) // already expired
+	defer conn.Close()
+
+	_, err := conn.Write([]byte("test"))
+	require.Error(t, err)
+}
+
+func TestCovMockNetConn_CloseCallback(t *testing.T) {
+	conn := NewMockNetConn()
+	called := false
+	conn.OnClose = func() error {
+		called = true
+		return nil
+	}
+
+	require.NoError(t, conn.Close())
+	require.True(t, called)
+}
+
+func TestCovMockTunnelStream_ServeConn_ClientToTunnel(t *testing.T) {
+	mc := NewMockConnector()
+	mc.Start()
+	defer mc.Close()
+
+	stream := NewMockTunnelStream("s1", mc, "target:80")
+	defer stream.Close()
+
+	clientConn, serverConn := net.Pipe()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- stream.ServeConn(serverConn)
+	}()
+
+	// Write from client to trigger tunnel send
+	clientConn.Write([]byte("hello"))
+	time.Sleep(100 * time.Millisecond)
+
+	// Put data back from tunnel
+	stream.PutData([]byte("response"))
+	time.Sleep(100 * time.Millisecond)
+
+	buf := make([]byte, 100)
+	clientConn.SetReadDeadline(time.Now().Add(time.Second))
+	n, _ := clientConn.Read(buf)
+
+	clientConn.Close()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+	}
+
+	_ = n
+}
+
+func TestCovMockTunnelStream_PutDataGetData(t *testing.T) {
+	mc := NewMockConnector()
+	mc.Start()
+	defer mc.Close()
+
+	stream := NewMockTunnelStream("s1", mc, "target:80")
+	defer stream.Close()
+
+	require.NoError(t, stream.PutData([]byte("data1")))
+
+	data, err := stream.GetData()
+	require.NoError(t, err)
+	require.Equal(t, []byte("data1"), data)
+}
