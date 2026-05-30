@@ -1,6 +1,8 @@
 package testing
 
 import (
+	"errors"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -9,142 +11,358 @@ import (
 	"github.com/tealife/proxy-cs3/src/tunnel"
 )
 
+// ============================================================
+// MockConnector tests
+// ============================================================
+
 func TestNewMockConnector(t *testing.T) {
 	mc := NewMockConnector()
-	if mc == nil {
-		t.Fatal("NewMockConnector returned nil")
-	}
+	require.NotNil(t, mc)
 }
 
 func TestNewMockConnectorWithOptions(t *testing.T) {
 	mc := NewMockConnectorWithOptions(MockConnectorOptions{})
-	if mc == nil {
-		t.Fatal("NewMockConnectorWithOptions returned nil")
-	}
+	require.NotNil(t, mc)
 }
 
 func TestMockConnector_Lifecycle(t *testing.T) {
 	mc := NewMockConnector()
 
-	// Connect
-	if err := mc.Connect(); err != nil {
-		t.Errorf("Connect: %v", err)
-	}
-	if !mc.WasConnectCalled() {
-		t.Error("Connect not recorded")
-	}
+	require.NoError(t, mc.Connect())
+	require.True(t, mc.WasConnectCalled())
 
-	// Start
-	if err := mc.Start(); err != nil {
-		t.Errorf("Start: %v", err)
-	}
+	require.NoError(t, mc.Start())
 
-	// SendData
-	if err := mc.SendData("s1", []byte("hello")); err != nil {
-		t.Errorf("SendData: %v", err)
-	}
-	got := mc.GetSentData("s1")
-	if string(got) != "hello" {
-		t.Errorf("GetSentData = %q", got)
-	}
-	if len(mc.GetAllSentData()) != 1 {
-		t.Errorf("GetAllSentData = %d entries", len(mc.GetAllSentData()))
-	}
-	if len(mc.GetSendDataCalls()) != 1 {
-		t.Errorf("GetSendDataCalls = %d", len(mc.GetSendDataCalls()))
-	}
+	require.NoError(t, mc.SendData("s1", []byte("hello")))
+	require.Equal(t, []byte("hello"), mc.GetSentData("s1"))
+	require.Len(t, mc.GetAllSentData(), 1)
+	require.Len(t, mc.GetSendDataCalls(), 1)
 
-	// CreateStream
 	id, stream, err := mc.CreateStream("example.com:80")
-	if err != nil {
-		t.Errorf("CreateStream: %v", err)
-	}
-	if id == "" || stream == nil {
-		t.Errorf("CreateStream: id=%q stream=%v", id, stream)
-	}
-	if len(mc.GetCreateStreamCalls()) != 1 {
-		t.Errorf("GetCreateStreamCalls = %d", len(mc.GetCreateStreamCalls()))
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, id)
+	require.NotNil(t, stream)
+	require.Len(t, mc.GetCreateStreamCalls(), 1)
 
-	// ProcessIncomingData
-	if err := mc.ProcessIncomingData([]byte{1}); err != nil {
-		t.Errorf("ProcessIncomingData: %v", err)
-	}
+	require.NoError(t, mc.ProcessIncomingData([]byte{1}))
 
-	// Close
-	if err := mc.Close(); err != nil {
-		t.Errorf("Close: %v", err)
-	}
-	if !mc.WasCloseCalled() {
-		t.Error("Close not recorded")
-	}
+	require.NoError(t, mc.Close())
+	require.True(t, mc.WasCloseCalled())
 }
 
 func TestMockConnector_Errors(t *testing.T) {
 	mc := NewMockConnectorWithOptions(MockConnectorOptions{
 		ConnectError: net.UnknownNetworkError("test"),
 	})
-	if err := mc.Connect(); err == nil {
-		t.Error("expected Connect error")
-	}
+	require.Error(t, mc.Connect())
 }
 
 func TestMockConnector_GetConn(t *testing.T) {
 	mc := NewMockConnector()
-	if mc.GetConn() == nil {
-		t.Error("GetConn nil")
-	}
+	require.NotNil(t, mc.GetConn())
 }
 
 func TestMockConnector_SetInitialState(t *testing.T) {
 	mc := NewMockConnector()
 	mc.SetInitialState(tunnel.StateConnected)
+	require.True(t, mc.IsRunning())
+
+	mc.SetInitialState(tunnel.StateClosed)
+	require.False(t, mc.IsRunning())
 }
+
+func TestMockConnector_IsRunning(t *testing.T) {
+	mc := NewMockConnector()
+	require.False(t, mc.IsRunning())
+	mc.Start()
+	require.True(t, mc.IsRunning())
+	mc.Close()
+	require.False(t, mc.IsRunning())
+}
+
+// --- Connector: Connect branches ---
+
+func TestCovMockConnector_ConnectFailDefault(t *testing.T) {
+	mc := NewMockConnectorWithOptions(MockConnectorOptions{
+		ShouldConnectSucceed: false,
+	})
+	err := mc.Connect()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "模拟连接失败")
+}
+
+func TestCovMockConnector_ConnectCallback(t *testing.T) {
+	mc := NewMockConnector()
+	called := false
+	mc.OnConnect = func() error {
+		called = true
+		return errors.New("callback-err")
+	}
+	err := mc.Connect()
+	require.True(t, called)
+	require.EqualError(t, err, "callback-err")
+}
+
+// --- Connector: Close branches ---
+
+func TestCovMockConnector_CloseFailDefault(t *testing.T) {
+	mc := NewMockConnectorWithOptions(MockConnectorOptions{
+		ShouldCloseSucceed: false,
+	})
+	err := mc.Close()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "模拟关闭失败")
+}
+
+func TestCovMockConnector_CloseFailCustomError(t *testing.T) {
+	mc := NewMockConnectorWithOptions(MockConnectorOptions{
+		ShouldCloseSucceed: false,
+		CloseError:         errors.New("custom-close-err"),
+	})
+	err := mc.Close()
+	require.EqualError(t, err, "custom-close-err")
+}
+
+func TestCovMockConnector_CloseCallback(t *testing.T) {
+	mc := NewMockConnector()
+	called := false
+	mc.OnClose = func() error {
+		called = true
+		return errors.New("close-cb-err")
+	}
+	err := mc.Close()
+	require.True(t, called)
+	require.EqualError(t, err, "close-cb-err")
+}
+
+// --- Connector: SendData branches ---
+
+func TestCovMockConnector_SendDataNotRunning(t *testing.T) {
+	mc := NewMockConnector()
+	err := mc.SendData("s1", []byte("test"))
+	require.Error(t, err)
+}
+
+func TestCovMockConnector_SendDataFailDefault(t *testing.T) {
+	mc := NewMockConnectorWithOptions(MockConnectorOptions{
+		ShouldSendDataSucceed: false,
+	})
+	mc.Start()
+	err := mc.SendData("s1", []byte("test"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "模拟发送数据失败")
+}
+
+func TestCovMockConnector_SendDataFailCustomError(t *testing.T) {
+	mc := NewMockConnectorWithOptions(MockConnectorOptions{
+		ShouldSendDataSucceed: false,
+		SendDataError:         errors.New("send-err"),
+	})
+	mc.Start()
+	err := mc.SendData("s1", []byte("test"))
+	require.EqualError(t, err, "send-err")
+}
+
+func TestCovMockConnector_SendDataCallback(t *testing.T) {
+	mc := NewMockConnector()
+	mc.Start()
+	called := false
+	mc.OnSendData = func(sid string, d []byte) error {
+		called = true
+		return errors.New("cb-send-err")
+	}
+	err := mc.SendData("s1", []byte("test"))
+	require.True(t, called)
+	require.EqualError(t, err, "cb-send-err")
+}
+
+// --- Connector: CreateStream branches ---
+
+func TestCovMockConnector_CreateStreamNotRunning(t *testing.T) {
+	mc := NewMockConnector()
+	_, _, err := mc.CreateStream("target:80")
+	require.Error(t, err)
+}
+
+func TestCovMockConnector_CreateStreamFailDefault(t *testing.T) {
+	mc := NewMockConnectorWithOptions(MockConnectorOptions{
+		ShouldCreateStreamSucceed: false,
+	})
+	mc.Start()
+	_, _, err := mc.CreateStream("target:80")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "模拟创建流失败")
+}
+
+func TestCovMockConnector_CreateStreamFailCustomError(t *testing.T) {
+	mc := NewMockConnectorWithOptions(MockConnectorOptions{
+		ShouldCreateStreamSucceed: false,
+		CreateStreamError:         errors.New("cs-err"),
+	})
+	mc.Start()
+	_, _, err := mc.CreateStream("target:80")
+	require.EqualError(t, err, "cs-err")
+}
+
+func TestCovMockConnector_CreateStreamCallback(t *testing.T) {
+	mc := NewMockConnector()
+	mc.Start()
+	called := false
+	mc.OnCreateStream = func(addr string) (string, tunnel.TunnelStream, error) {
+		called = true
+		return "", nil, errors.New("cb-cs-err")
+	}
+	_, _, err := mc.CreateStream("target:80")
+	require.True(t, called)
+	require.EqualError(t, err, "cb-cs-err")
+}
+
+// ============================================================
+// MockTunnelStream tests
+// ============================================================
 
 func TestMockTunnelStream_Basic(t *testing.T) {
 	mc := NewMockConnector()
 	ms := NewMockTunnelStream("s1", mc, "example.com:80")
-
-	if ms.GetStreamID() != "s1" {
-		t.Errorf("GetStreamID = %q", ms.GetStreamID())
-	}
-	if ms.ID() != "s1" {
-		t.Errorf("ID = %q", ms.ID())
-	}
-	if ms.TargetAddr() != "example.com:80" {
-		t.Errorf("TargetAddr = %q", ms.TargetAddr())
-	}
+	require.Equal(t, "s1", ms.GetStreamID())
+	require.Equal(t, "s1", ms.ID())
+	require.Equal(t, "example.com:80", ms.TargetAddr())
 }
 
 func TestMockTunnelStream_DataOps(t *testing.T) {
 	mc := NewMockConnector()
 	ms := NewMockTunnelStream("s1", mc, "addr")
 
-	if err := ms.PutData([]byte("test")); err != nil {
-		t.Errorf("PutData: %v", err)
-	}
+	require.NoError(t, ms.PutData([]byte("test")))
 	got, err := ms.GetData()
-	if err != nil || string(got) != "test" {
-		t.Errorf("GetData = %q err=%v", got, err)
-	}
-	if len(ms.GetPutDataCalls()) != 1 {
-		t.Errorf("GetPutDataCalls = %d", len(ms.GetPutDataCalls()))
-	}
-	// GetBuffer returns data buffer bytes, data was consumed by GetData
+	require.NoError(t, err)
+	require.Equal(t, []byte("test"), got)
+	require.Len(t, ms.GetPutDataCalls(), 1)
 	_ = ms.GetBuffer()
 }
 
 func TestMockTunnelStream_Close(t *testing.T) {
 	mc := NewMockConnector()
 	ms := NewMockTunnelStream("s1", mc, "addr")
-
-	if err := ms.Close(); err != nil {
-		t.Errorf("Close: %v", err)
-	}
-	if !ms.WasCloseCalled() || !ms.IsClosed() {
-		t.Error("close state wrong")
-	}
+	require.NoError(t, ms.Close())
+	require.True(t, ms.WasCloseCalled())
+	require.True(t, ms.IsClosed())
 }
+
+func TestMockTunnelStream_WithOptions(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStreamWithOptions(mc, MockTunnelStreamOptions{
+		StreamID:   "s2",
+		TargetAddr: "test.com:443",
+	})
+	require.Equal(t, "s2", ms.GetStreamID())
+}
+
+// --- TunnelStream: Close branches ---
+
+func TestCovMockTunnelStream_DoubleClose(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStream("s1", mc, "addr")
+	require.NoError(t, ms.Close())
+	// Second close should return nil (already closed)
+	require.NoError(t, ms.Close())
+}
+
+func TestCovMockTunnelStream_CloseFail(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStreamWithOptions(mc, MockTunnelStreamOptions{
+		StreamID:           "s1",
+		TargetAddr:         "addr",
+		ShouldCloseSucceed: false,
+	})
+	err := ms.Close()
+	require.Error(t, err)
+}
+
+func TestCovMockTunnelStream_CloseFailCustomError(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStreamWithOptions(mc, MockTunnelStreamOptions{
+		StreamID:     "s1",
+		TargetAddr:   "addr",
+		CloseError:   errors.New("custom-close-err"),
+	})
+	require.EqualError(t, ms.Close(), "custom-close-err")
+}
+
+func TestCovMockTunnelStream_CloseCallback(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStream("s1", mc, "addr")
+	called := false
+	ms.OnClose = func() error {
+		called = true
+		return errors.New("cb-close-err")
+	}
+	require.EqualError(t, ms.Close(), "cb-close-err")
+	require.True(t, called)
+}
+
+// --- TunnelStream: PutData branches ---
+
+func TestCovMockTunnelStream_PutDataClosed(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStream("s1", mc, "addr")
+	ms.Close()
+	err := ms.PutData([]byte("data"))
+	require.Error(t, err)
+}
+
+func TestCovMockTunnelStream_PutDataFail(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStreamWithOptions(mc, MockTunnelStreamOptions{
+		StreamID:             "s1",
+		TargetAddr:           "addr",
+		ShouldPutDataSucceed: false,
+	})
+	err := ms.PutData([]byte("data"))
+	require.Error(t, err)
+}
+
+func TestCovMockTunnelStream_PutDataFailCustomError(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStreamWithOptions(mc, MockTunnelStreamOptions{
+		StreamID:       "s1",
+		TargetAddr:     "addr",
+		PutDataError:   errors.New("pd-err"),
+	})
+	require.EqualError(t, ms.PutData([]byte("data")), "pd-err")
+}
+
+func TestCovMockTunnelStream_PutDataCallback(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStream("s1", mc, "addr")
+	called := false
+	ms.OnPutData = func(d []byte) error {
+		called = true
+		return errors.New("cb-pd-err")
+	}
+	require.EqualError(t, ms.PutData([]byte("data")), "cb-pd-err")
+	require.True(t, called)
+}
+
+// --- TunnelStream: GetData branches ---
+
+func TestCovMockTunnelStream_GetDataEmpty(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStream("s1", mc, "addr")
+	data, err := ms.GetData()
+	require.NoError(t, err)
+	require.Nil(t, data)
+}
+
+func TestCovMockTunnelStream_GetDataClosed(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStream("s1", mc, "addr")
+	ms.Close()
+	_, err := ms.GetData()
+	require.Error(t, err)
+}
+
+// --- TunnelStream: ServeConn branches ---
 
 func TestMockTunnelStream_ServeConn(t *testing.T) {
 	mc := NewMockConnector()
@@ -165,47 +383,145 @@ func TestMockTunnelStream_ServeConn(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Error("ServeConn timeout")
 	}
-	if len(ms.GetServeConnCalls()) != 1 {
-		t.Errorf("ServeConnCalls = %d", len(ms.GetServeConnCalls()))
+	require.Len(t, ms.GetServeConnCalls(), 1)
+}
+
+func TestCovMockTunnelStream_ServeConnClosed(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStream("s1", mc, "addr")
+	ms.Close()
+	err := ms.ServeConn(NewMockNetConn())
+	require.Error(t, err)
+}
+
+func TestCovMockTunnelStream_ServeConnCallback(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStream("s1", mc, "addr")
+	called := false
+	ms.OnServeConn = func(c net.Conn) error {
+		called = true
+		return errors.New("cb-sc-err")
+	}
+	require.EqualError(t, ms.ServeConn(NewMockNetConn()), "cb-sc-err")
+	require.True(t, called)
+}
+
+func TestCovMockTunnelStream_ServeConnFail(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStreamWithOptions(mc, MockTunnelStreamOptions{
+		StreamID:               "s1",
+		TargetAddr:             "addr",
+		ShouldServeConnSucceed: false,
+	})
+	err := ms.ServeConn(NewMockNetConn())
+	require.Error(t, err)
+}
+
+func TestCovMockTunnelStream_ServeConnFailCustomError(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStreamWithOptions(mc, MockTunnelStreamOptions{
+		StreamID:        "s1",
+		TargetAddr:      "addr",
+		ServeConnError:  errors.New("sc-err"),
+	})
+	require.EqualError(t, ms.ServeConn(NewMockNetConn()), "sc-err")
+}
+
+func TestCovMockTunnelStream_ServeConnWithData(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStream("s1", mc, "addr")
+	// Put data before ServeConn — triggers the "send pre-stored data" path
+	ms.PutData([]byte("pre-stored"))
+
+	clientConn, serverConn := net.Pipe()
+
+	done := make(chan error, 1)
+	go func() { done <- ms.ServeConn(serverConn) }()
+
+	// Read the pre-stored data from client side
+	buf := make([]byte, 100)
+	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, err := clientConn.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, "pre-stored", string(buf[:n]))
+
+	// Write data from client — triggers the goroutine read path
+	clientConn.Write([]byte("from-client"))
+	time.Sleep(100 * time.Millisecond)
+
+	// Close to exit ServeConn
+	clientConn.Close()
+	ms.Close()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("ServeConn did not exit")
 	}
 }
 
-func TestMockTunnelStream_WithOptions(t *testing.T) {
+func TestCovMockTunnelStream_ServeConnWriteError(t *testing.T) {
 	mc := NewMockConnector()
-	ms := NewMockTunnelStreamWithOptions(mc, MockTunnelStreamOptions{
-		StreamID:   "s2",
-		TargetAddr: "test.com:443",
-	})
-	if ms.GetStreamID() != "s2" {
-		t.Errorf("GetStreamID = %q", ms.GetStreamID())
+	ms := NewMockTunnelStream("s1", mc, "addr")
+	ms.PutData([]byte("pre-stored"))
+
+	// Use a conn that will error on Write
+	errConn := NewErrorMockNetConn("write-err")
+	done := make(chan error, 1)
+	go func() { done <- ms.ServeConn(errConn) }()
+
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("ServeConn did not exit on write error")
 	}
 }
+
+func TestCovMockTunnelStream_ServeConnReadEOF(t *testing.T) {
+	mc := NewMockConnector()
+	ms := NewMockTunnelStream("s1", mc, "addr")
+
+	clientConn, serverConn := net.Pipe()
+
+	done := make(chan error, 1)
+	go func() { done <- ms.ServeConn(serverConn) }()
+
+	time.Sleep(50 * time.Millisecond)
+	// Close client → server sees EOF → goroutine exits
+	clientConn.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	ms.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("ServeConn did not exit")
+	}
+}
+
+// ============================================================
+// MockNetConn tests
+// ============================================================
 
 func TestMockNetConn_ReadWrite(t *testing.T) {
 	conn := NewMockNetConn()
-
 	n, err := conn.Write([]byte("hello"))
-	if err != nil || n != 5 {
-		t.Fatalf("Write: n=%d err=%v", n, err)
-	}
-	if string(conn.GetWrittenData()) != "hello" {
-		t.Errorf("WrittenData = %q", conn.GetWrittenData())
-	}
+	require.NoError(t, err)
+	require.Equal(t, 5, n)
+	require.Equal(t, []byte("hello"), conn.GetWrittenData())
 
 	conn.AddReadData([]byte("world"))
 	buf := make([]byte, 10)
 	n, err = conn.Read(buf)
-	if err != nil || n != 5 || string(buf[:n]) != "world" {
-		t.Errorf("Read: n=%d data=%q err=%v", n, buf[:n], err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "world", string(buf[:n]))
 }
 
 func TestMockNetConn_Close(t *testing.T) {
 	conn := NewMockNetConn()
 	conn.Close()
-	if !conn.IsClosed() {
-		t.Error("not closed")
-	}
+	require.True(t, conn.IsClosed())
 }
 
 func TestMockNetConn_Deadlines(t *testing.T) {
@@ -218,53 +534,43 @@ func TestMockNetConn_Deadlines(t *testing.T) {
 
 func TestMockNetConn_Addrs(t *testing.T) {
 	conn := NewMockNetConn()
-	if conn.LocalAddr() == nil || conn.RemoteAddr() == nil {
-		t.Error("nil addr")
-	}
+	require.NotNil(t, conn.LocalAddr())
+	require.NotNil(t, conn.RemoteAddr())
 }
 
 func TestMockNetConn_ClearWritten(t *testing.T) {
 	conn := NewMockNetConn()
 	conn.Write([]byte("x"))
 	conn.ClearWrittenData()
-	if len(conn.GetWrittenData()) != 0 {
-		t.Error("clear failed")
-	}
+	require.Empty(t, conn.GetWrittenData())
 }
 
 func TestMockNetConn_Options(t *testing.T) {
 	conn := NewMockNetConn()
 	_ = conn.GetOptions()
-
 	conn.ApplyCondition(MockNetConnOptions{
 		ReadDelay:      10 * time.Millisecond,
 		WriteDelay:     10 * time.Millisecond,
 		PacketLossRate: 0.5,
 	})
 	got := conn.GetOptions()
-	if got.ReadDelay != 10*time.Millisecond {
-		t.Errorf("ReadDelay = %v", got.ReadDelay)
-	}
+	require.Equal(t, 10*time.Millisecond, got.ReadDelay)
 }
 
 func TestMockNetConn_SetClosed(t *testing.T) {
 	conn := NewMockNetConn()
 	conn.SetClosed(true)
-	if !conn.IsClosed() {
-		t.Error("not closed")
-	}
+	require.True(t, conn.IsClosed())
 	conn.SetClosed(false)
-	if conn.IsClosed() {
-		t.Error("still closed")
-	}
+	require.False(t, conn.IsClosed())
 }
 
 func TestErrorMockNetConn(t *testing.T) {
 	conn := NewErrorMockNetConn("test")
-	buf := make([]byte, 10)
-	if _, err := conn.Read(buf); err == nil {
-		t.Error("expected error")
-	}
+	_, err := conn.Write([]byte("x"))
+	require.Error(t, err)
+	_, err = conn.Read(make([]byte, 10))
+	require.Error(t, err)
 }
 
 func TestMockNetConn_WithOptions(t *testing.T) {
@@ -272,320 +578,113 @@ func TestMockNetConn_WithOptions(t *testing.T) {
 		ReadDelay:  5 * time.Millisecond,
 		WriteDelay: 5 * time.Millisecond,
 	})
-	if conn == nil {
-		t.Fatal("nil conn")
-	}
-}
-
-func TestMockConnector_IsRunning(t *testing.T) {
-	mc := NewMockConnector()
-	if mc.IsRunning() {
-		t.Error("should not be running initially")
-	}
-	mc.Start()
-	if !mc.IsRunning() {
-		t.Error("should be running after Start")
-	}
-	mc.Close()
-	if mc.IsRunning() {
-		t.Error("should not be running after Close")
-	}
-}
-
-// === Coverage boost: MockNetConn Read/Write ===
-
-func TestCovMockNetConn_WriteAndRead(t *testing.T) {
-	conn := NewMockNetConn()
-	defer conn.Close()
-
-	// Write stores data in writeBuffer
-	n, err := conn.Write([]byte("hello world"))
-	require.NoError(t, err)
-	require.Equal(t, 11, n)
-
-	// Verify written data
-	require.Equal(t, []byte("hello world"), conn.GetWrittenData())
-
-	// Add data to read buffer, then read it
-	conn.AddReadData([]byte("response"))
-	buf := make([]byte, 100)
-	conn.SetReadDeadline(time.Now().Add(time.Second))
-	n, err = conn.Read(buf)
-	require.NoError(t, err)
-	require.Equal(t, "response", string(buf[:n]))
-}
-
-func TestCovMockNetConn_ReadTimeout(t *testing.T) {
-	conn := NewMockNetConn()
-	defer conn.Close()
-
-	conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
-	buf := make([]byte, 100)
-	_, err := conn.Read(buf)
-	require.Error(t, err)
-}
-
-func TestCovMockTunnelStream_ServeConn(t *testing.T) {
-	mc := NewMockConnector()
-	stream := NewMockTunnelStream("serve-test", mc, "target:80")
-
-	clientConn, serverConn := net.Pipe()
-
-	done := make(chan error, 1)
-	go func() {
-		done <- stream.ServeConn(serverConn)
-	}()
-
-	stream.PutData([]byte("from-tunnel"))
-	time.Sleep(100 * time.Millisecond)
-
-	buf := make([]byte, 100)
-	clientConn.SetReadDeadline(time.Now().Add(time.Second))
-	n, err := clientConn.Read(buf)
-	require.NoError(t, err)
-	require.Equal(t, "from-tunnel", string(buf[:n]))
-
-	clientConn.Close()
-	stream.Close()
-
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("ServeConn did not exit")
-	}
-}
-
-func TestCovMockTunnelStream_PutDataClosed(t *testing.T) {
-	mc := NewMockConnector()
-	stream := NewMockTunnelStream("put-closed", mc, "target:80")
-	stream.Close()
-
-	err := stream.PutData([]byte("test"))
-	require.Error(t, err)
-}
-
-func TestCovMockConnector_Close(t *testing.T) {
-	mc := NewMockConnector()
-	err := mc.Close()
-	require.NoError(t, err)
-}
-
-func TestCovMockConnector_SendData(t *testing.T) {
-	mc := NewMockConnector()
-	require.NoError(t, mc.Start())
-	defer mc.Close()
-
-	err := mc.SendData("stream-1", []byte("hello"))
-	require.NoError(t, err)
-
-	sent := mc.GetSentData("stream-1")
-	require.Equal(t, []byte("hello"), sent)
-}
-
-func TestCovMockConnector_CreateStream(t *testing.T) {
-	mc := NewMockConnector()
-	require.NoError(t, mc.Start())
-	defer mc.Close()
-
-	_, stream, err := mc.CreateStream("target:80")
-	require.NoError(t, err)
-	require.NotNil(t, stream)
-}
-
-// === Coverage boost: all remaining low-coverage functions ===
-
-// === Coverage boost: all remaining low-coverage functions ===
-
-func TestCovMockNetConn_WriteLargeData(t *testing.T) {
-	conn := NewMockNetConn()
-	defer conn.Close()
-
-	data := make([]byte, 2048)
-	for i := range data {
-		data[i] = byte(i % 256)
-	}
-	n, err := conn.Write(data)
-	require.NoError(t, err)
-	require.Equal(t, 2048, n)
-	require.Equal(t, data, conn.GetWrittenData())
-}
-
-func TestCovMockNetConn_ClearWrittenData(t *testing.T) {
-	conn := NewMockNetConn()
-	defer conn.Close()
-
-	conn.Write([]byte("hello"))
-	require.NotEmpty(t, conn.GetWrittenData())
-	conn.ClearWrittenData()
-	require.Empty(t, conn.GetWrittenData())
-}
-
-func TestCovMockNetConn_SetDeadline(t *testing.T) {
-	conn := NewMockNetConn()
-	defer conn.Close()
-
-	require.NoError(t, conn.SetDeadline(time.Now().Add(time.Hour)))
-	require.NoError(t, conn.SetWriteDeadline(time.Now().Add(time.Hour)))
-}
-
-func TestCovMockNetConn_AddReadDataMulti(t *testing.T) {
-	conn := NewMockNetConn()
-	defer conn.Close()
-
-	conn.AddReadData([]byte("chunk1chunk2"))
-
-	buf := make([]byte, 100)
-	conn.SetReadDeadline(time.Now().Add(time.Second))
-	n, err := conn.Read(buf)
-	require.NoError(t, err)
-	require.Equal(t, "chunk1chunk2", string(buf[:n]))
-}
-
-func TestCovMockNetConn_Addresses(t *testing.T) {
-	conn := NewMockNetConn()
-	defer conn.Close()
-	require.NotNil(t, conn.LocalAddr())
-	require.NotNil(t, conn.RemoteAddr())
-}
-
-func TestCovMockNetConn_IsClosed(t *testing.T) {
-	conn := NewMockNetConn()
-	require.False(t, conn.IsClosed())
-	conn.Close()
-	require.True(t, conn.IsClosed())
-}
-
-func TestCovMockNetConnWithOptions(t *testing.T) {
-	conn := NewMockNetConnWithOptions(MockNetConnOptions{
-		ReadDelay:      10 * time.Millisecond,
-		WriteDelay:     10 * time.Millisecond,
-		PacketLossRate: 0.5,
-		ReadErrorRate:  0.5,
-		WriteErrorRate: 0.5,
-	})
-	defer conn.Close()
-	// Just test creation with options
 	require.NotNil(t, conn)
 }
 
-func TestCovNewErrorMockNetConn(t *testing.T) {
-	conn := NewErrorMockNetConn("read error")
-	defer conn.Close()
+// --- MockNetConn: Read branches ---
 
-	_, err := conn.Write([]byte("test"))
-	require.Error(t, err)
-
-	_, err = conn.Read(make([]byte, 10))
-	require.Error(t, err)
-}
-
-func TestCovMockTunnelStream_GetDataWithData(t *testing.T) {
-	mc := NewMockConnector()
-	mc.Start()
-	defer mc.Close()
-
-	stream := NewMockTunnelStream("s1", mc, "target:80")
-	defer stream.Close()
-
-	stream.PutData([]byte("hello"))
-	data, err := stream.GetData()
-	require.NoError(t, err)
-	require.Equal(t, []byte("hello"), data)
-}
-
-func TestCovMockTunnelStream_CloseTwice(t *testing.T) {
-	mc := NewMockConnector()
-	stream := NewMockTunnelStream("s1", mc, "target:80")
-	require.NoError(t, stream.Close())
-	require.NoError(t, stream.Close())
-}
-
-func TestCovMockConnector_Connect(t *testing.T) {
-	mc := NewMockConnector()
-	require.NoError(t, mc.Connect())
-}
-
-func TestCovMockConnector_Start(t *testing.T) {
-	mc := NewMockConnector()
-	require.NoError(t, mc.Start())
-	require.True(t, mc.IsRunning())
-}
-
-func TestCovMockConnector_SetInitialState(t *testing.T) {
-	mc := NewMockConnector()
-	mc.SetInitialState(tunnel.StateConnected)
-	require.True(t, mc.IsRunning())
-
-	mc.SetInitialState(tunnel.StateClosed)
-	require.False(t, mc.IsRunning())
-}
-
-func TestCovMockConnector_ProcessIncomingData(t *testing.T) {
-	mc := NewMockConnector()
-	mc.Start()
-	defer mc.Close()
-
-	pkt := tunnel.NewDataPacket("conn", "s1", []byte("data"))
-	require.NoError(t, mc.ProcessIncomingData(pkt.Bytes()))
-}
-
-// === Final push: Read/Write/ServeConn/PutData/Close remaining branches ===
-
-func TestCovMockNetConn_ReadCallbacks(t *testing.T) {
-	conn := NewMockNetConn()
-	called := false
-	conn.OnRead = func(b []byte) (int, error) {
-		called = true
-		copy(b, []byte("custom"))
-		return 6, nil
-	}
-	defer conn.Close()
-
-	buf := make([]byte, 100)
-	n, err := conn.Read(buf)
-	require.NoError(t, err)
-	require.True(t, called)
-	require.Equal(t, "custom", string(buf[:n]))
-}
-
-func TestCovMockNetConn_WriteCallbacks(t *testing.T) {
-	conn := NewMockNetConn()
-	called := false
-	conn.OnWrite = func(b []byte) (int, error) {
-		called = true
-		return len(b), nil
-	}
-	defer conn.Close()
-
-	n, err := conn.Write([]byte("test"))
-	require.NoError(t, err)
-	require.True(t, called)
-	require.Equal(t, 4, n)
-}
-
-func TestCovMockNetConn_ReadConnClosed(t *testing.T) {
+func TestCovMockNetConn_ReadClosed(t *testing.T) {
 	conn := NewMockNetConn()
 	conn.Close()
+	_, err := conn.Read(make([]byte, 10))
+	require.Equal(t, ErrConnClosed, err)
+}
 
+func TestCovMockNetConn_ReadDeadlineExpired(t *testing.T) {
+	conn := NewMockNetConn()
+	conn.SetReadDeadline(time.Now().Add(-time.Second))
 	_, err := conn.Read(make([]byte, 10))
 	require.Error(t, err)
 }
 
-func TestCovMockNetConn_WriteConnClosed(t *testing.T) {
+func TestCovMockNetConn_ReadWithDelay(t *testing.T) {
+	conn := NewMockNetConnWithOptions(MockNetConnOptions{
+		ReadDelay: 1 * time.Millisecond,
+	})
+	defer conn.Close()
+	conn.AddReadData([]byte("delayed"))
+	buf := make([]byte, 100)
+	n, err := conn.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, "delayed", string(buf[:n]))
+}
+
+func TestCovMockNetConn_ReadEOF(t *testing.T) {
+	conn := NewMockNetConn()
+	defer conn.Close()
+	_, err := conn.Read(make([]byte, 10))
+	require.Equal(t, io.EOF, err)
+}
+
+func TestCovMockNetConn_ReadCallback(t *testing.T) {
+	conn := NewMockNetConn()
+	defer conn.Close()
+	conn.OnRead = func(b []byte) (int, error) {
+		copy(b, []byte("custom"))
+		return 6, nil
+	}
+	buf := make([]byte, 100)
+	n, err := conn.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, "custom", string(buf[:n]))
+}
+
+func TestCovMockNetConn_InitialReadData(t *testing.T) {
+	conn := NewMockNetConnWithOptions(MockNetConnOptions{
+		InitialReadData: []byte("initial"),
+	})
+	defer conn.Close()
+	buf := make([]byte, 100)
+	n, err := conn.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, "initial", string(buf[:n]))
+}
+
+// --- MockNetConn: Write branches ---
+
+func TestCovMockNetConn_WriteClosed(t *testing.T) {
 	conn := NewMockNetConn()
 	conn.Close()
+	_, err := conn.Write([]byte("test"))
+	require.Equal(t, ErrConnClosed, err)
+}
 
+func TestCovMockNetConn_WriteDeadlineExpired(t *testing.T) {
+	conn := NewMockNetConn()
+	conn.SetWriteDeadline(time.Now().Add(-time.Second))
+	defer conn.Close()
 	_, err := conn.Write([]byte("test"))
 	require.Error(t, err)
 }
 
-func TestCovMockNetConn_WriteDeadlineExceeded(t *testing.T) {
-	conn := NewMockNetConn()
-	conn.SetWriteDeadline(time.Now().Add(-time.Second)) // already expired
+func TestCovMockNetConn_WriteWithDelay(t *testing.T) {
+	conn := NewMockNetConnWithOptions(MockNetConnOptions{
+		WriteDelay: 1 * time.Millisecond,
+	})
 	defer conn.Close()
+	n, err := conn.Write([]byte("delayed"))
+	require.NoError(t, err)
+	require.Equal(t, 7, n)
+}
 
-	_, err := conn.Write([]byte("test"))
-	require.Error(t, err)
+func TestCovMockNetConn_WriteCallback(t *testing.T) {
+	conn := NewMockNetConn()
+	defer conn.Close()
+	conn.OnWrite = func(b []byte) (int, error) {
+		return len(b), nil
+	}
+	n, err := conn.Write([]byte("test"))
+	require.NoError(t, err)
+	require.Equal(t, 4, n)
+}
+
+// --- MockNetConn: Close branches ---
+
+func TestCovMockNetConn_DoubleClose(t *testing.T) {
+	conn := NewMockNetConn()
+	require.NoError(t, conn.Close())
+	// Second close — hits "already closed" path
+	require.NoError(t, conn.Close())
 }
 
 func TestCovMockNetConn_CloseCallback(t *testing.T) {
@@ -595,59 +694,6 @@ func TestCovMockNetConn_CloseCallback(t *testing.T) {
 		called = true
 		return nil
 	}
-
 	require.NoError(t, conn.Close())
 	require.True(t, called)
-}
-
-func TestCovMockTunnelStream_ServeConn_ClientToTunnel(t *testing.T) {
-	mc := NewMockConnector()
-	mc.Start()
-	defer mc.Close()
-
-	stream := NewMockTunnelStream("s1", mc, "target:80")
-	defer stream.Close()
-
-	clientConn, serverConn := net.Pipe()
-
-	done := make(chan error, 1)
-	go func() {
-		done <- stream.ServeConn(serverConn)
-	}()
-
-	// Write from client to trigger tunnel send
-	clientConn.Write([]byte("hello"))
-	time.Sleep(100 * time.Millisecond)
-
-	// Put data back from tunnel
-	stream.PutData([]byte("response"))
-	time.Sleep(100 * time.Millisecond)
-
-	buf := make([]byte, 100)
-	clientConn.SetReadDeadline(time.Now().Add(time.Second))
-	n, _ := clientConn.Read(buf)
-
-	clientConn.Close()
-
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-	}
-
-	_ = n
-}
-
-func TestCovMockTunnelStream_PutDataGetData(t *testing.T) {
-	mc := NewMockConnector()
-	mc.Start()
-	defer mc.Close()
-
-	stream := NewMockTunnelStream("s1", mc, "target:80")
-	defer stream.Close()
-
-	require.NoError(t, stream.PutData([]byte("data1")))
-
-	data, err := stream.GetData()
-	require.NoError(t, err)
-	require.Equal(t, []byte("data1"), data)
 }
