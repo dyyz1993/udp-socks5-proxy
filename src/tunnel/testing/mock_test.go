@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/tealife/proxy-cs3/src/tunnel"
 )
 
@@ -289,4 +290,104 @@ func TestMockConnector_IsRunning(t *testing.T) {
 	if mc.IsRunning() {
 		t.Error("should not be running after Close")
 	}
+}
+
+// === Coverage boost: MockNetConn Read/Write ===
+
+func TestCovMockNetConn_WriteAndRead(t *testing.T) {
+	conn := NewMockNetConn()
+	defer conn.Close()
+
+	// Write stores data in writeBuffer
+	n, err := conn.Write([]byte("hello world"))
+	require.NoError(t, err)
+	require.Equal(t, 11, n)
+
+	// Verify written data
+	require.Equal(t, []byte("hello world"), conn.GetWrittenData())
+
+	// Add data to read buffer, then read it
+	conn.AddReadData([]byte("response"))
+	buf := make([]byte, 100)
+	conn.SetReadDeadline(time.Now().Add(time.Second))
+	n, err = conn.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, "response", string(buf[:n]))
+}
+
+func TestCovMockNetConn_ReadTimeout(t *testing.T) {
+	conn := NewMockNetConn()
+	defer conn.Close()
+
+	conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+	buf := make([]byte, 100)
+	_, err := conn.Read(buf)
+	require.Error(t, err)
+}
+
+func TestCovMockTunnelStream_ServeConn(t *testing.T) {
+	mc := NewMockConnector()
+	stream := NewMockTunnelStream("serve-test", mc, "target:80")
+
+	clientConn, serverConn := net.Pipe()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- stream.ServeConn(serverConn)
+	}()
+
+	stream.PutData([]byte("from-tunnel"))
+	time.Sleep(100 * time.Millisecond)
+
+	buf := make([]byte, 100)
+	clientConn.SetReadDeadline(time.Now().Add(time.Second))
+	n, err := clientConn.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, "from-tunnel", string(buf[:n]))
+
+	clientConn.Close()
+	stream.Close()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("ServeConn did not exit")
+	}
+}
+
+func TestCovMockTunnelStream_PutDataClosed(t *testing.T) {
+	mc := NewMockConnector()
+	stream := NewMockTunnelStream("put-closed", mc, "target:80")
+	stream.Close()
+
+	err := stream.PutData([]byte("test"))
+	require.Error(t, err)
+}
+
+func TestCovMockConnector_Close(t *testing.T) {
+	mc := NewMockConnector()
+	err := mc.Close()
+	require.NoError(t, err)
+}
+
+func TestCovMockConnector_SendData(t *testing.T) {
+	mc := NewMockConnector()
+	require.NoError(t, mc.Start())
+	defer mc.Close()
+
+	err := mc.SendData("stream-1", []byte("hello"))
+	require.NoError(t, err)
+
+	sent := mc.GetSentData("stream-1")
+	require.Equal(t, []byte("hello"), sent)
+}
+
+func TestCovMockConnector_CreateStream(t *testing.T) {
+	mc := NewMockConnector()
+	require.NoError(t, mc.Start())
+	defer mc.Close()
+
+	_, stream, err := mc.CreateStream("target:80")
+	require.NoError(t, err)
+	require.NotNil(t, stream)
 }

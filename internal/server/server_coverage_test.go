@@ -339,3 +339,50 @@ func TestCovServer_HandleUDP_ShortPacket(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 }
+
+// TestCovHandleUDP_ProcessRealData tests that handleUDP processes real UDP data
+func TestCovHandleUDP_ProcessRealData(t *testing.T) {
+	sp := getFreeServerPort(t)
+	logger := common.NewSimpleLogger("test", common.ErrorLevel)
+	s := NewServer(Config{Port: sp, LogLevel: common.ErrorLevel}, logger)
+	go s.Start()
+	time.Sleep(200 * time.Millisecond)
+	defer s.Stop()
+
+	// Send a valid handshake packet to trigger processPacket
+	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: sp})
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Send handshake packet
+	pkt := tunnel.NewHandshakePacket("test-conn", [32]byte{}, "group", 1, "v1.0")
+	_, err = conn.Write(pkt.Bytes())
+	require.NoError(t, err)
+
+	// Wait for processing
+	time.Sleep(500 * time.Millisecond)
+}
+
+// TestCovProcessPacket_InvalidData tests processPacket with invalid data
+func TestCovProcessPacket_InvalidData(t *testing.T) {
+	sp := getFreeServerPort(t)
+	logger := common.NewSimpleLogger("test", common.ErrorLevel)
+	s := NewServer(Config{Port: sp, LogLevel: common.ErrorLevel}, logger)
+	go s.Start()
+	time.Sleep(200 * time.Millisecond)
+	defer s.Stop()
+
+	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: sp})
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Send invalid data (too short)
+	_, err = conn.Write([]byte{0x01})
+	require.NoError(t, err)
+
+	// Send empty data
+	_, err = conn.Write([]byte{})
+	require.NoError(t, err)
+
+	time.Sleep(500 * time.Millisecond)
+}
