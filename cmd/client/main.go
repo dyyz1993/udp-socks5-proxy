@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -19,7 +18,7 @@ func main() {
 // run 是 main 的可测试版本，返回退出码
 func run(args []string) int {
 	fs := flag.NewFlagSet("client", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
+	fs.SetOutput(os.Stderr)
 
 	localPort := fs.Int("local", 1080, "本地SOCKS5服务端口")
 	serverAddr := fs.String("server", "127.0.0.1:1081", "服务器地址")

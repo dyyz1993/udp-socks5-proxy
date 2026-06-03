@@ -85,16 +85,25 @@ func (v *VirtualSocks5Conn) Read(b []byte) (n int, err error) {
 	v.log.Debugf("[Read-Status] 当前状态: pos=%d, totalData=%d, hasRecvAuth=%v, hasSentAuth=%v, hasSentConnect=%v",
 		currentPos, totalData, hasRecvAuth, hasSentAuth, hasSentConnect)
 
-	// SOCKS5协议步骤1: 发送握手请求 (前3个字节: 05 01 00)
-	if currentPos < 3 {
-		remaining := 3 - currentPos
+	// SOCKS5协议步骤1: 发送握手请求 (VER + NMETHODS + METHODS[NMETHODS])
+	// greeting长度 = 2 + originalData[1]
+	greetingLen := 2
+	if len(v.originalData) >= 2 {
+		greetingLen = 2 + int(v.originalData[1])
+		if greetingLen > len(v.originalData) {
+			greetingLen = len(v.originalData)
+		}
+	}
+
+	if currentPos < greetingLen {
+		remaining := greetingLen - currentPos
 		if remaining > len(b) {
 			remaining = len(b)
 		}
 		copy(b, v.originalData[currentPos:currentPos+remaining])
 		v.currentPos = currentPos + remaining
-		v.hasSentAuth = true // 设置已发送握手请求
-		v.log.Debugf("[Read-Handshake] 发送握手请求: %d字节, 数据: % x", remaining, b[:remaining])
+		v.hasSentAuth = (v.currentPos >= greetingLen)
+		v.log.Debugf("[Read-Handshake] 发送握手请求: %d字节 (greetingLen=%d), 数据: % x", remaining, greetingLen, b[:remaining])
 		v.mu.Unlock()
 		return remaining, nil
 	}

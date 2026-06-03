@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,7 +17,7 @@ func main() {
 // run 是 main 的可测试版本，返回退出码
 func run(args []string) int {
 	fs := flag.NewFlagSet("server", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
+	fs.SetOutput(os.Stderr)
 
 	port := fs.Int("port", 1080, "服务监听端口")
 	logLevel := fs.String("log", "info", "日志级别: debug, info, warn, error, fatal")
