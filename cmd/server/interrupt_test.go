@@ -24,14 +24,16 @@ func TestWaitForInterrupt_ImmediateSignal(t *testing.T) {
 		p.Signal(syscall.SIGINT)
 	}()
 
-	done := make(chan struct{})
+	done := make(chan int)
 	go func() {
-		waitForInterrupt(srv, logger)
-		close(done)
+		done <- waitForInterrupt(srv, logger)
 	}()
 
 	select {
-	case <-done:
+	case code := <-done:
+		if code != 0 {
+			t.Errorf("waitForInterrupt returned %d, want 0", code)
+		}
 	case <-time.After(2 * time.Second):
 		t.Error("waitForInterrupt timed out")
 	}

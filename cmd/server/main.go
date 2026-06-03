@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,39 +11,41 @@ import (
 	"github.com/tealife/proxy-cs3/internal/server"
 )
 
-var (
-	port     = flag.Int("port", 1080, "服务监听端口")
-	logLevel = flag.String("log", "info", "日志级别: debug, info, warn, error, fatal")
-)
-
 func main() {
-	flag.Parse()
+	os.Exit(run(os.Args[1:]))
+}
 
-	// 解析日志级别
+// run 是 main 的可测试版本，返回退出码
+func run(args []string) int {
+	fs := flag.NewFlagSet("server", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	port := fs.Int("port", 1080, "服务监听端口")
+	logLevel := fs.String("log", "info", "日志级别: debug, info, warn, error, fatal")
+
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
 	level := parseLogLevel(*logLevel)
-
-	// 创建日志记录器
 	logger := common.NewSimpleLogger("SERVER", level)
 
-	// 创建服务器配置
 	config := server.Config{
 		Port:     *port,
 		LogLevel: level,
 	}
 
-	// 创建服务器实例
 	srv := server.NewServer(config, logger)
 
-	// 启动服务器
 	if err := srv.Start(); err != nil {
-		logger.Fatalf("启动服务器失败: %v", err)
+		logger.Errorf("启动服务器失败: %v", err)
+		return 1
 	}
 
-	// 等待中断信号
-	waitForInterrupt(srv, logger)
+	return waitForInterrupt(srv, logger)
 }
 
-// 解析日志级别
+// parseLogLevel 解析日志级别
 func parseLogLevel(level string) common.LogLevel {
 	switch level {
 	case "debug":
@@ -60,21 +63,19 @@ func parseLogLevel(level string) common.LogLevel {
 	}
 }
 
-// 等待中断信号
-func waitForInterrupt(srv *server.Server, logger common.Logger) {
-	// 创建通道接收信号
+// waitForInterrupt 等待中断信号并优雅关闭，返回退出码
+func waitForInterrupt(srv *server.Server, logger common.Logger) int {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// 等待信号
 	sig := <-sigCh
 	logger.Infof("收到信号: %v，正在关闭服务器...", sig)
 
-	// 优雅关闭
 	if err := srv.Stop(); err != nil {
 		logger.Errorf("关闭服务器时出错: %v", err)
-		os.Exit(1)
+		return 1
 	}
 
 	logger.Info("服务器已关闭")
+	return 0
 }
