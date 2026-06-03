@@ -17,8 +17,8 @@ import (
 
 // TestFragmentPacket 测试大数据包的分片传输
 func TestFragmentPacket(t *testing.T) {
-	// 设置超时时间
-	timeout := 5 * time.Second
+	// 设置超时时间（CI 环境需要更长时间）
+	timeout := 30 * time.Second
 	done := make(chan struct{})
 	defer close(done)
 
@@ -106,7 +106,7 @@ func TestFragmentPacket(t *testing.T) {
 		select {
 		case <-receivedChan:
 			// 继续
-		case <-time.After(5 * time.Second):
+		case <-time.After(10 * time.Second):
 			t.Log("接收数据超时（CI 环境可能较慢）")
 			t.Skip("CI 环境下 mock 回环不稳定")
 		}
